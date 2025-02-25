@@ -9,10 +9,13 @@ from config import DISCORD_TOKEN
 
 class EngagementBot(commands.Bot):
     def __init__(self):
+        # Explicitly declare all required intents
         intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        intents.voice_states = True
+        intents.message_content = True  # For reading message content
+        intents.members = True         # For tracking member joins/leaves
+        intents.voice_states = True    # For tracking voice activity
+        intents.guilds = True          # For server information
+        intents.presences = True       # For user status updates
 
         super().__init__(command_prefix='!', intents=intents)
 
