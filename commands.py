@@ -1,26 +1,32 @@
 import discord
 from discord.ext import commands
 from datetime import datetime
+import logging
+
+logger = logging.getLogger('EngagementBot')
 
 class Commands(commands.Cog):
     def __init__(self, bot, point_system, twitter_handler):
         self.bot = bot
         self.points = point_system
         self.twitter = twitter_handler
+        logger.info("Commands cog initialized")
 
     @commands.command(name='points')
     async def check_points(self, ctx):
         """Check your current points"""
+        logger.info(f"Points command received from {ctx.author}")
         points = self.points.db.get_user_points(ctx.author.id)
         await ctx.send(f"{ctx.author.mention}, you have {points} points!")
 
     @commands.command(name='leaderboard')
     async def show_leaderboard(self, ctx):
         """Display the points leaderboard"""
+        logger.info(f"Leaderboard command received from {ctx.author}")
         leaderboard = self.points.db.get_leaderboard()
-        
+
         embed = discord.Embed(title="Points Leaderboard", color=discord.Color.gold())
-        
+
         for i, (user_id, data) in enumerate(leaderboard[:10], 1):
             try:
                 user = await self.bot.fetch_user(int(user_id))
@@ -37,6 +43,7 @@ class Commands(commands.Cog):
     @commands.command(name='rob')
     async def rob_user(self, ctx, victim: discord.Member):
         """Try to steal points from another user"""
+        logger.info(f"Rob command received from {ctx.author} targeting {victim}")
         if victim.id == ctx.author.id:
             await ctx.send("You can't rob yourself!")
             return
@@ -44,9 +51,58 @@ class Commands(commands.Cog):
         success, message = await self.points.try_rob(ctx.author.id, victim.id)
         await ctx.send(f"{ctx.author.mention}: {message}")
 
+    @commands.command(name='linktwitter')
+    async def link_twitter(self, ctx, twitter_username: str):
+        """Link your Discord account to your Twitter username"""
+        logger.info(f"Link Twitter command received from {ctx.author} for {twitter_username}")
+        # Remove @ if present
+        twitter_username = twitter_username.lstrip('@')
+
+        try:
+            # Verify if the Twitter account exists
+            activity = await self.twitter.get_user_activity(twitter_username)
+            if activity is None:
+                await ctx.send(f"{ctx.author.mention}, ce compte Twitter n'existe pas ou n'est pas accessible.")
+                return
+
+            # Link the accounts
+            self.points.db.link_twitter_account(ctx.author.id, twitter_username)
+            await ctx.send(f"{ctx.author.mention}, votre compte Discord est maintenant lié à Twitter @{twitter_username}!")
+        except Exception as e:
+            await ctx.send(f"{ctx.author.mention}, une erreur est survenue lors de la liaison avec Twitter. Réessayez plus tard.")
+            logger.error(f"Error linking Twitter account: {e}")
+
+    @commands.command(name='twitterpoints')
+    async def twitter_points(self, ctx):
+        """Check your Twitter engagement points"""
+        logger.info(f"Twitter points command received from {ctx.author}")
+        twitter_username = self.points.db.get_twitter_username(ctx.author.id)
+        if not twitter_username:
+            await ctx.send(f"{ctx.author.mention}, vous devez d'abord lier votre compte Twitter avec !linktwitter @votrecompte")
+            return
+
+        try:
+            activity = await self.twitter.get_user_activity(twitter_username)
+            if activity:
+                embed = discord.Embed(
+                    title="Points d'engagement Twitter",
+                    description=f"Statistiques pour @{twitter_username}",
+                    color=discord.Color.blue()
+                )
+                embed.add_field(name="Likes", value=f"{activity['likes']} likes", inline=True)
+                embed.add_field(name="Retweets", value=f"{activity['retweets']} retweets", inline=True)
+                embed.add_field(name="Commentaires", value=f"{activity['comments']} commentaires", inline=True)
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send(f"{ctx.author.mention}, impossible de récupérer vos statistiques Twitter pour le moment.")
+        except Exception as e:
+            await ctx.send(f"{ctx.author.mention}, une erreur est survenue lors de la récupération de vos points Twitter.")
+            logger.error(f"Error fetching Twitter points: {e}")
+
     @commands.command(name='bothelp')
     async def bothelp_command(self, ctx):
         """Show available commands and their usage"""
+        logger.info(f"Help command received from {ctx.author}")
         embed = discord.Embed(
             title="Bot Commands",
             description="Here are all available commands:",
@@ -57,6 +113,8 @@ class Commands(commands.Cog):
             "!points": "Check your current points",
             "!leaderboard": "View the top 10 users",
             "!rob @user": "Try to steal points from another user",
+            "!linktwitter @username": "Link your Twitter account",
+            "!twitterpoints": "Check your Twitter engagement points",
             "!bothelp": "Show this help message"
         }
 

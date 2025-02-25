@@ -16,6 +16,8 @@ A Discord bot that tracks user engagement across Discord and Twitter platforms, 
 - `!points` - Check your current points
 - `!leaderboard` - View the top 10 users
 - `!rob @user` - Try to steal points from another user
+- `!linktwitter @username` - Link your Twitter account
+- `!twitterpoints` - Check your Twitter engagement points
 - `!bothelp` - Show all available commands
 
 ## Setup

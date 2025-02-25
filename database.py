@@ -7,7 +7,9 @@ class Database:
         self.data = {
             'users': {},
             'rob_cooldowns': {},
-            'voice_sessions': {}
+            'voice_sessions': {},
+            'twitter_links': {},  # Stockage des liens Twitter-Discord
+            'twitter_stats': {}   # Stockage des statistiques Twitter précédentes
         }
         self.load_data()
 
@@ -64,3 +66,39 @@ class Database:
             self.save_data()
             return duration
         return 0
+
+    # Méthodes pour la gestion Twitter
+    def link_twitter_account(self, discord_id, twitter_username):
+        """Lie un compte Twitter à un ID Discord"""
+        self.data['twitter_links'][str(discord_id)] = twitter_username.lower()
+        self.save_data()
+
+    def get_twitter_username(self, discord_id):
+        """Récupère le nom d'utilisateur Twitter lié à un ID Discord"""
+        return self.data['twitter_links'].get(str(discord_id))
+
+    def get_discord_id_by_twitter(self, twitter_username):
+        """Récupère l'ID Discord lié à un nom d'utilisateur Twitter"""
+        twitter_username = twitter_username.lower()
+        for discord_id, linked_twitter in self.data['twitter_links'].items():
+            if linked_twitter == twitter_username:
+                return discord_id
+        return None
+
+    # Nouvelles méthodes pour les statistiques Twitter
+    def get_twitter_stats(self, discord_id):
+        """Récupère les statistiques Twitter précédentes d'un utilisateur"""
+        return self.data['twitter_stats'].get(str(discord_id), {
+            'likes': 0,
+            'retweets': 0,
+            'comments': 0
+        })
+
+    def update_twitter_stats(self, discord_id, stats):
+        """Met à jour les statistiques Twitter d'un utilisateur"""
+        self.data['twitter_stats'][str(discord_id)] = stats
+        self.save_data()
+
+    def get_all_twitter_users(self):
+        """Récupère tous les utilisateurs ayant lié leur compte Twitter"""
+        return self.data['twitter_links'].items()
