@@ -6,14 +6,15 @@ logger = logging.getLogger('EngagementBot')
 
 class Commands(commands.Cog):
     def __init__(self, bot, point_system, twitter_handler):
-        super().__init__()
+        logger.info("Starting Commands cog initialization...")
         self.bot = bot
         self.points = point_system
         self.twitter = twitter_handler
+        super().__init__()  # Initialize the parent class after setting attributes
         logger.info("Commands cog initialized")
         logger.info(f"Available commands: {[cmd.name for cmd in self.__cog_commands__]}")
 
-    @commands.command(name='ping')
+    @commands.command(name='ping_test')
     async def ping_command(self, ctx):
         """Simple command to test if the bot is responding"""
         logger.info(f"Ping command received from {ctx.author}")
@@ -22,6 +23,17 @@ class Commands(commands.Cog):
             logger.info("Ping command executed successfully")
         except Exception as e:
             logger.error(f"Error in ping command: {e}", exc_info=True)
+            await ctx.send("An error occurred.")
+
+    @commands.command(name='test')
+    async def test_command(self, ctx):
+        """Simple test command to verify command registration"""
+        logger.info(f"Test command received from {ctx.author}")
+        try:
+            await ctx.send('Test command working!')
+            logger.info("Test command executed successfully")
+        except Exception as e:
+            logger.error(f"Error in test command: {e}", exc_info=True)
             await ctx.send("An error occurred.")
 
     @commands.command(name='bothelp')
@@ -36,11 +48,12 @@ class Commands(commands.Cog):
             )
 
             commands_list = {
-                "!ping": "Test if bot is responding",
+                "!ping_test": "Test if bot is responding",
                 "!points": "Check your current points",
                 "!leaderboard": "View top 10 users",
                 "!rob @user": "Try to steal points from another user",
-                "!bothelp": "Show this help message"
+                "!bothelp": "Show this help message",
+                "!test": "Test command to verify registration"
             }
 
             for cmd, desc in commands_list.items():

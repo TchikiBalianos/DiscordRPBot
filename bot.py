@@ -37,6 +37,7 @@ class EngagementBot(commands.Bot):
         """This is called when the bot starts up"""
         try:
             # Add the Commands cog from commands.py
+            logger.info("Setting up bot and loading commands...")
             await self.add_cog(Commands(self, self.point_system, self.twitter_handler))
             logger.info(f"Commands cog loaded with commands: {[cmd.name for cmd in self.commands]}")
         except Exception as e:
@@ -52,6 +53,11 @@ class EngagementBot(commands.Bot):
             for perm, value in guild.me.guild_permissions:
                 logger.info(f'Permission {perm}: {value}')
 
+        # Log all registered commands
+        logger.info("Registered commands:")
+        for command in self.commands:
+            logger.info(f"- {command.name}: {command.callback.__name__}")
+
     async def on_message(self, message):
         """Called when a message is received"""
         if message.author.bot:
@@ -61,6 +67,9 @@ class EngagementBot(commands.Bot):
         logger.debug(f'Message received: "{message.content}" from {message.author} in {message.channel}')
 
         try:
+            # Log the command being processed
+            if message.content.startswith(self.command_prefix):
+                logger.info(f"Processing command: {message.content}")
             await self.process_commands(message)
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
