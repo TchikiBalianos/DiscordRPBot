@@ -32,7 +32,10 @@ from config import (
     ROULETTE_COOLDOWN,
     LOTTERY_DRAW_INTERVAL,
     POINTS_VOICE_PER_MINUTE,
-    POINTS_MESSAGE
+    POINTS_MESSAGE,
+    POINTS_TWITTER_LIKE,
+    POINTS_TWITTER_RT,
+    POINTS_TWITTER_COMMENT
 )
 
 logger = logging.getLogger('EngagementBot')
@@ -159,6 +162,7 @@ class Commands(commands.Cog):
             twitter_username = twitter_username.lstrip('@').lower().strip()
             logger.info(f"Attempting to link Twitter account @{twitter_username} for user {ctx.author}")
 
+            loading_message = await ctx.send("🔄 Vérification de votre compte Twitter en cours...")
             try:
                 exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
                 logger.info(f"Verification result for @{twitter_username}: exists={exists}, id={twitter_id}, metrics={metrics}")
@@ -166,7 +170,7 @@ class Commands(commands.Cog):
                 if exists and twitter_id:
                     # Store the link
                     self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
-                    await ctx.send(f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
+                    await loading_message.edit(content=f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
 
                     # Show initial metrics if available
                     if metrics:
@@ -175,16 +179,16 @@ class Commands(commands.Cog):
                                      f"• Following: {metrics.get('following_count', 0)}\n"
                                      f"• Tweets: {metrics.get('tweet_count', 0)}")
                 else:
-                    await ctx.send("❌ Ce compte Twitter n'existe pas. Vérifiez le nom d'utilisateur et réessayez.")
+                    await loading_message.edit(content="❌ Ce compte Twitter n'existe pas. Vérifiez le nom d'utilisateur et réessayez.")
 
             except TooManyRequests:
-                await ctx.send("⏳ L'API Twitter est temporairement indisponible. Veuillez réessayer dans quelques minutes.")
+                await loading_message.edit(content="⏳ L'API Twitter est temporairement indisponible. Veuillez réessayer dans quelques minutes.")
             except Unauthorized:
                 logger.error("Twitter API authentication failed")
-                await ctx.send("❌ Erreur d'authentification Twitter. Un administrateur a été notifié.")
+                await loading_message.edit(content="❌ Erreur d'authentification Twitter. Un administrateur a été notifié.")
             except Exception as e:
                 logger.error(f"Error verifying Twitter account: {str(e)}", exc_info=True)
-                await ctx.send("❌ Une erreur s'est produite lors de la vérification du compte Twitter.")
+                await loading_message.edit(content="❌ Une erreur s'est produite lors de la vérification du compte Twitter.")
 
         except Exception as e:
             logger.error(f"Error in link_twitter command: {str(e)}", exc_info=True)
@@ -438,7 +442,7 @@ class Commands(commands.Cog):
             logger.error(f"Error in help command: {e}")
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='twitterstats')
+    @commands.command(name='twitterstats', aliases=['twstats'])
     async def twitter_stats(self, ctx):
         """Check Twitter statistics"""
         try:
@@ -449,7 +453,7 @@ class Commands(commands.Cog):
                 return
 
             # Verify account and get stats
-            exists, twitter_id = await self.twitter.verify_account(twitter_username)
+            exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
             if not exists:
                 await ctx.send("❌ Votre compte Twitter lié n'est plus accessible.")
                 return
@@ -475,6 +479,15 @@ class Commands(commands.Cog):
             embed.add_field(
                 name="💰 Points Gagnés",
                 value=str(stats.get('points_earned', 0)),
+                inline=False
+            )
+
+            # Afficher les taux de points
+            embed.add_field(
+                name="ℹ️ Points par interaction",
+                value=f"• Like: {POINTS_TWITTER_LIKE} points\n"
+                      f"• Retweet: {POINTS_TWITTER_RT} points\n"
+                      f"• Réponse: {POINTS_TWITTER_COMMENT} points",
                 inline=False
             )
 
@@ -736,7 +749,7 @@ class Commands(commands.Cog):
 
             success, message = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
             if success:
-                combat_msg = await ctx.send(message)
+                combat_msg= await ctx.send(message)
                 for move in COMBAT_MOVES:
                     await combat_msg.add_reaction(move)
             else:

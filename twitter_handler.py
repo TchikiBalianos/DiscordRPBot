@@ -50,7 +50,7 @@ class TwitterHandler:
             raise
 
     async def verify_account(self, username: str):
-        """Verify Twitter account existence with enhanced validation"""
+        """Verify Twitter account existence with enhanced validation and rate limit handling"""
         try:
             username = username.lstrip('@').lower().strip()
             logger.info(f"Starting verification for Twitter account: @{username}")
@@ -70,8 +70,18 @@ class TwitterHandler:
                     return False, None, None
 
             except TooManyRequests as e:
-                logger.error(f"Rate limit exceeded: {str(e)}")
-                raise
+                logger.warning(f"Rate limit reached for Twitter API, will retry in {e.retry_after} seconds")
+                # Sleep for the required time and retry once
+                time.sleep(e.retry_after if hasattr(e, 'retry_after') else 60)
+                response = self.client.get_users(
+                    usernames=[username],
+                    user_fields=['id', 'username', 'public_metrics']
+                )
+                if response and hasattr(response, 'data') and response.data:
+                    user = response.data[0]
+                    logger.info(f"✅ Successfully found Twitter account after retry: @{username}")
+                    return True, user.id, user.public_metrics
+                return False, None, None
 
             except Unauthorized as e:
                 logger.error(f"Authentication failed: {str(e)}")
