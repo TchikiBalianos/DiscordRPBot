@@ -22,7 +22,7 @@ class TwitterHandler:
             logger.debug(f"API Key starting with: {TWITTER_API_KEY[:4]}...")
             logger.debug(f"Bearer Token starting with: {TWITTER_BEARER_TOKEN[:4]}...")
             logger.debug(f"Access Token starting with: {TWITTER_ACCESS_TOKEN[:4]}...")
-
+            
             # Initialize OAuth 1.0a client
             self.auth = tweepy.OAuthHandler(TWITTER_API_KEY, TWITTER_API_SECRET)
             self.auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET)
@@ -45,56 +45,34 @@ class TwitterHandler:
             raise
 
     async def verify_account(self, username: str):
-        """Verify Twitter account existence with enhanced error handling"""
+        """Verify Twitter account existence with simplified v2 API approach"""
         try:
             username = username.lstrip('@')
-            logger.info(f"Attempting to verify Twitter account: {username}")
+            logger.info(f"Verifying Twitter account: {username}")
 
-            # Check cache first
-            cache_key = f"user_{username}"
-            cached_result = self._get_from_cache(cache_key)
-            if cached_result:
-                logger.info(f"Retrieved user info from cache for {username}")
-                return cached_result
-
+            # Simplified direct v2 API call using Bearer Token
             try:
-                logger.info(f"Attempting OAuth 2.0 lookup for {username}")
-                # Use OAuth 2.0 client for better rate limits
-                response = self.client.get_user(username=username)
+                client = tweepy.Client(bearer_token=TWITTER_BEARER_TOKEN)
+                response = client.get_user(username=username)
 
                 if response and response.data:
-                    result = (True, response.data.id)
-                    self._set_in_cache(cache_key, result)
-                    logger.info(f"Successfully verified Twitter account: {username}")
-                    return result
+                    user_id = response.data.id
+                    logger.info(f"✅ Found Twitter account: @{username} (ID: {user_id})")
+                    return True, user_id
                 else:
-                    logger.warning(f"User {username} not found via OAuth 2.0")
-                    return (False, None)
+                    logger.warning(f"❌ Twitter account not found: @{username}")
+                    return False, None
 
             except TooManyRequests:
-                logger.warning("Rate limited, retrying with OAuth 1.0a")
-                time.sleep(1)  # Small delay before retry
-
-                try:
-                    # Fallback to OAuth 1.0a
-                    user = self.api.get_user(screen_name=username)
-                    if user:
-                        result = (True, user.id)
-                        self._set_in_cache(cache_key, result)
-                        logger.info(f"Successfully verified Twitter account via OAuth 1.0a: {username}")
-                        return result
-                    return (False, None)
-                except Exception as e:
-                    logger.error(f"OAuth 1.0a error: {str(e)}")
-                    return (False, None)
-
+                logger.warning("Rate limit reached, please try again in a few minutes")
+                raise
             except Exception as e:
-                logger.error(f"Error verifying account: {str(e)}")
-                return (False, None)
+                logger.error(f"Error verifying Twitter account: {str(e)}")
+                return False, None
 
         except Exception as e:
-            logger.error(f"Error in verify_account: {str(e)}", exc_info=True)
-            return (False, None)
+            logger.error(f"Unexpected error in verify_account: {str(e)}")
+            return False, None
 
     async def get_user_stats(self, twitter_id: str):
         """Get user statistics with enhanced error handling"""
