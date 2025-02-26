@@ -8,22 +8,21 @@ logger = logging.getLogger('TwitterTest')
 def test_twitter_connection():
     try:
         logger.info("Testing Twitter API connection...")
-        logger.info(f"Twitter API Key present: {bool(TWITTER_API_KEY)}")
-        logger.info(f"Twitter API Secret present: {bool(TWITTER_API_SECRET)}")
-        logger.info(f"Twitter Access Token present: {bool(TWITTER_ACCESS_TOKEN)}")
-        logger.info(f"Twitter Access Secret present: {bool(TWITTER_ACCESS_SECRET)}")
+        logger.info(f"Bearer Token present: {bool(TWITTER_BEARER_TOKEN)}")
+
+        if not TWITTER_BEARER_TOKEN:
+            logger.error("Bearer Token is missing")
+            return False
 
         client = tweepy.Client(
-            consumer_key=TWITTER_API_KEY,
-            consumer_secret=TWITTER_API_SECRET,
-            access_token=TWITTER_ACCESS_TOKEN,
-            access_token_secret=TWITTER_ACCESS_SECRET
+            bearer_token=TWITTER_BEARER_TOKEN,
+            wait_on_rate_limit=True
         )
 
         # Test the connection with get_me()
-        me = client.get_me()
-        if me.data:
-            logger.info(f"Successfully connected as: @{me.data.username}")
+        response = client.get_user(username="X")
+        if response and response.data:
+            logger.info(f"Successfully retrieved user info for @X")
             return True
         else:
             logger.error("Could not get user information")
@@ -32,10 +31,9 @@ def test_twitter_connection():
     except tweepy.errors.Unauthorized as e:
         logger.error(f"Authentication failed: {e}")
         logger.error("Please verify in Twitter Developer Portal:")
-        logger.error("1. App permissions are set to Read and Write")
-        logger.error("2. OAuth 1.0a is enabled")
-        logger.error("3. The tokens belong to the correct app")
-        logger.error("4. The tokens are from the same app/project")
+        logger.error("1. Your Bearer Token is valid")
+        logger.error("2. Your app has User.Read permission")
+        logger.error("3. The Bearer Token hasn't expired")
         return False
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
