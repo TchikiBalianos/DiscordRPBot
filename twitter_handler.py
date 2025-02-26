@@ -22,7 +22,7 @@ class TwitterHandler:
             logger.info(f"Twitter API Key present: {bool(TWITTER_API_KEY)}")
             logger.info(f"Twitter API Secret present: {bool(TWITTER_API_SECRET)}")
 
-            # Initialize client for Twitter API v2 with basic configuration
+            # Configuration simple avec wait_on_rate_limit
             self.client = tweepy.Client(
                 bearer_token=bearer_token,
                 consumer_key=TWITTER_API_KEY,
@@ -44,35 +44,10 @@ class TwitterHandler:
             logger.exception("Full initialization error traceback:")
             raise
 
-    async def _handle_rate_limit(self, operation, max_retries=3, initial_delay=5):
-        last_exception = None
-        for attempt in range(max_retries):
-            try:
-                start_time = time.time()
-                result = await operation()
-                logger.debug(f"Operation completed in {time.time() - start_time:.2f}s")
-                return result
-            except tweepy.errors.TooManyRequests as e:
-                wait_time = int(e.response.headers.get('x-rate-limit-reset', 60))
-                logger.warning(f"Rate limit hit, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                if attempt == max_retries - 1:
-                    raise ValueError("Limite de requêtes Twitter atteinte. Réessayez dans quelques minutes.")
-                await asyncio.sleep(wait_time)
-            except Exception as e:
-                delay = initial_delay * (2 ** attempt)  # Exponential backoff
-                logger.error(f"Error during operation (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt == max_retries - 1:
-                    if isinstance(e, tweepy.errors.Unauthorized):
-                        raise ValueError("Accès non autorisé à Twitter. Vérifiez les permissions du compte.")
-                    elif isinstance(e, tweepy.errors.NotFound):
-                        raise ValueError("Compte Twitter introuvable.")
-                    else:
-                        raise ValueError(f"Erreur Twitter: {str(e)}")
-                await asyncio.sleep(delay)
-
     def _test_connection(self):
         try:
             logger.debug("Testing Twitter API connection...")
+            time.sleep(2)  # Petit délai pour éviter les limites de taux
             response = self.client.get_user(username="X")
             if response and response.get('data'):
                 logger.info("Twitter API connection test successful")
@@ -91,26 +66,23 @@ class TwitterHandler:
 
         try:
             logger.debug(f"Fetching Twitter activity for user {username}")
-            start_time = time.time()
+            time.sleep(1)  # Petit délai pour éviter les limites de taux
 
             # Get user ID
-            user_response = await self._handle_rate_limit(
-                lambda: self.client.get_user(username=username)
-            )
-
+            user_response = self.client.get_user(username=username)
             if not user_response or not user_response.get('data'):
                 raise ValueError(f"Le compte Twitter @{username} n'existe pas.")
 
             user_id = user_response['data']['id']
             logger.debug(f"Found Twitter user {username} with ID {user_id}")
 
-            # Get tweets
-            tweets_response = await self._handle_rate_limit(
-                lambda: self.client.get_users_tweets(
-                    user_id,
-                    max_results=10,
-                    tweet_fields=['public_metrics']
-                )
+            time.sleep(1)  # Petit délai entre les requêtes
+
+            # Get tweets with basic metrics
+            tweets_response = self.client.get_users_tweets(
+                user_id,
+                max_results=5,  # Réduit à 5 pour moins de données
+                tweet_fields=['public_metrics']
             )
 
             if not tweets_response or not tweets_response.get('data'):
@@ -119,16 +91,15 @@ class TwitterHandler:
 
             activity = {'likes': 0, 'retweets': 0, 'comments': 0}
             for tweet in tweets_response['data']:
-                metrics = tweet['public_metrics']
+                metrics = tweet.get('public_metrics', {})
                 activity['likes'] += metrics.get('like_count', 0)
                 activity['retweets'] += metrics.get('retweet_count', 0)
                 activity['comments'] += metrics.get('reply_count', 0)
 
-            logger.debug(f"Activity fetched in {time.time() - start_time:.2f}s: {activity}")
+            logger.info(f"Activity for {username}: {activity}")
             return activity
 
         except ValueError as e:
-            # Déjà formaté pour l'utilisateur
             raise
         except tweepy.errors.TooManyRequests:
             logger.error("Rate limit exceeded")

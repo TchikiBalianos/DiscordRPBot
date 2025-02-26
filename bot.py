@@ -8,42 +8,55 @@ from commands import Commands
 from config import DISCORD_TOKEN
 import logging
 
-# Configure le logging
+# Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('EngagementBot')
 
-# Add Discord.py debug logging
-discord_logger = logging.getLogger('discord')
-discord_logger.setLevel(logging.DEBUG)
-
 class EngagementBot(commands.Bot):
     def __init__(self):
         logger.debug("Initializing EngagementBot...")
+
+        # Set up required intents
         intents = discord.Intents.default()
         intents.message_content = True
         intents.members = True
         intents.voice_states = True
         intents.guilds = True
-        # Removed intents.presences = True as it's not explicitly needed
 
-        super().__init__(command_prefix='!', intents=intents)
+        # Initialize bot with required settings
+        super().__init__(
+            command_prefix='!',
+            intents=intents,
+            help_command=None
+        )
 
-        logger.debug("Setting up bot components...")
+        # Set up components
         self.db = Database()
         self.point_system = PointSystem(self.db)
         self.twitter_handler = None
-        logger.info("Bot components initialized")
+
+        logger.info("Bot initialization complete")
 
     async def setup_hook(self):
         try:
             logger.debug("Starting setup_hook...")
+
+            # Initialize Twitter handler
             self.twitter_handler = TwitterHandler()
-            logger.debug("Adding Commands cog...")
+
+            # Add commands
             await self.add_cog(Commands(self, self.point_system, self.twitter_handler))
-            logger.info(f"Registered commands: {[command.name for command in self.commands]}")
+
+            # Verify commands registration
+            commands_list = [command.name for command in self.commands]
+            logger.info(f"Registered commands: {commands_list}")
+
+            if not commands_list:
+                logger.error("No commands were registered!")
+
         except Exception as e:
             logger.error(f"Error in setup_hook: {e}")
             logger.exception("Full setup error traceback:")
@@ -51,52 +64,34 @@ class EngagementBot(commands.Bot):
 
     async def on_ready(self):
         logger.info(f'Logged in as {self.user.name} (ID: {self.user.id})')
-        logger.info(f'Connected to {len(self.guilds)} guilds:')
-        for guild in self.guilds:
-            logger.info(f'- {guild.name} (ID: {guild.id})')
-            # Log les permissions du bot dans chaque serveur
-            for channel in guild.text_channels:
-                permissions = channel.permissions_for(guild.me)
-                logger.info(f'  Channel {channel.name}: '
-                          f'read_messages={permissions.read_messages}, '
-                          f'send_messages={permissions.send_messages}, '
-                          f'embed_links={permissions.embed_links}')
+        logger.info(f'Connected to {len(self.guilds)} guilds')
 
-        # Verify command registration
-        logger.debug(f"Available commands: {[command.name for command in self.commands]}")
-        logger.debug(f"Command prefix: {self.command_prefix}")
+        # Verify command registration again
+        logger.info(f"Available commands: {[cmd.name for cmd in self.commands]}")
 
         # Start background tasks
         self.save_data_loop.start()
         self.check_twitter_engagement.start()
-        logger.info("Bot is fully ready and listening for commands")
 
     async def on_message(self, message):
         if message.author.bot:
             return
 
         try:
-            # Log détaillé du message reçu
-            logger.debug(f"Message reçu - Contenu: '{message.content}' | "
-                        f"Auteur: {message.author} | "
-                        f"Canal: {message.channel} | "
-                        f"Serveur: {message.guild}")
+            # Log message details for debugging
+            logger.debug(f"Message received from {message.author}: {message.content}")
 
-            # Vérifie si c'est une commande
             if message.content.startswith(self.command_prefix):
-                logger.debug(f"Commande détectée: {message.content}")
-                logger.debug(f"Commandes disponibles: {[c.name for c in self.commands]}")
-                # Process the command
+                logger.debug(f"Command detected: {message.content}")
                 await self.process_commands(message)
-                logger.debug("Commande traitée")
+                logger.debug("Command processed")
             else:
-                # Only award points for non-command messages
                 await self.point_system.award_message_points(message.author.id)
-                logger.debug("Points attribués pour le message")
+                logger.debug("Points awarded for message")
 
         except Exception as e:
-            logger.error(f"Erreur dans on_message: {e}")
-            logger.exception("Traceback complet:")
+            logger.error(f"Error in on_message: {e}")
+            logger.exception("Full traceback:")
 
     async def on_command_error(self, ctx, error):
         """Gestion des erreurs de commande"""
@@ -116,54 +111,45 @@ class EngagementBot(commands.Bot):
             logger.info("Data saved successfully")
         except Exception as e:
             logger.error(f"Error saving data: {e}")
-            logger.exception("Full save data traceback:")
 
     @tasks.loop(minutes=15)
     async def check_twitter_engagement(self):
         try:
-            # Skip if Twitter handler isn't initialized
             if not self.twitter_handler:
-                logger.warning("Twitter handler not initialized, skipping engagement check")
+                logger.warning("Twitter handler not initialized")
                 return
 
+            logger.info("Starting Twitter engagement check")
             for discord_id, twitter_username in self.db.get_all_twitter_users():
                 try:
-                    logger.info(f"Checking Twitter engagement for {twitter_username}")
                     old_stats = self.db.get_twitter_stats(discord_id)
                     new_stats = await self.twitter_handler.get_user_activity(twitter_username)
 
                     if new_stats:
-                        # Process stats and award points
                         await self._process_twitter_stats(discord_id, old_stats, new_stats)
                         self.db.update_twitter_stats(discord_id, new_stats)
-                        logger.info(f"Updated Twitter stats for {twitter_username}")
                 except Exception as e:
-                    logger.error(f"Error processing Twitter stats for {twitter_username}: {e}")
-                    continue
+                    logger.error(f"Error checking Twitter for user {twitter_username}: {e}")
 
         except Exception as e:
             logger.error(f"Error in check_twitter_engagement: {e}")
-            logger.exception("Full Twitter engagement check traceback:")
 
     async def _process_twitter_stats(self, discord_id, old_stats, new_stats):
-        """Process Twitter stats and award points for new interactions"""
         try:
             # Calculate new interactions
             new_likes = max(0, new_stats['likes'] - old_stats['likes'])
             new_retweets = max(0, new_stats['retweets'] - old_stats['retweets'])
             new_comments = max(0, new_stats['comments'] - old_stats['comments'])
 
-            # Award points for each new interaction
+            # Award points for new interactions
             if new_likes > 0:
                 await self.point_system.award_twitter_points(discord_id, 'like')
             if new_retweets > 0:
                 await self.point_system.award_twitter_points(discord_id, 'retweet')
             if new_comments > 0:
                 await self.point_system.award_twitter_points(discord_id, 'comment')
-
         except Exception as e:
-            logger.error(f"Error processing Twitter stats for user {discord_id}: {e}")
-            raise
+            logger.error(f"Error processing Twitter stats: {e}")
 
     @check_twitter_engagement.before_loop
     async def before_check_twitter(self):
@@ -176,15 +162,8 @@ class EngagementBot(commands.Bot):
 async def main():
     try:
         bot = EngagementBot()
-        logger.info("Starting bot...")
-        token = DISCORD_TOKEN
-        if not token:
-            logger.error("Discord token is missing!")
-            raise ValueError("Discord token is required")
-        logger.debug("Discord token is present")
-
         async with bot:
-            await bot.start(token)
+            await bot.start(DISCORD_TOKEN)
     except Exception as e:
         logger.error(f"Error in main: {e}")
         logger.exception("Full main error traceback:")

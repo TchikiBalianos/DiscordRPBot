@@ -1,8 +1,6 @@
 import discord
 from discord.ext import commands
-from datetime import datetime
 import logging
-import tweepy
 
 logger = logging.getLogger('EngagementBot')
 
@@ -11,84 +9,43 @@ class Commands(commands.Cog):
         self.bot = bot
         self.points = point_system
         self.twitter = twitter_handler
+
+        # Register commands with the bot
+        self.bot.add_cog(self)
         logger.info("Commands cog initialized")
+        logger.info(f"Available commands: {[cmd.name for cmd in self.__cog_commands__]}")
 
-    @commands.command(name='testtwitter')
-    async def test_twitter(self, ctx, twitter_username: str = None):
-        """Test Twitter API connection and data retrieval"""
-        logger.debug(f"Commande testtwitter reçue de {ctx.author}")
-
-        if twitter_username is None:
-            await ctx.send("❌ Veuillez spécifier un nom d'utilisateur Twitter. Exemple: !testtwitter X")
-            return
-
-        try:
-            # Remove @ if present
-            twitter_username = twitter_username.lstrip('@')
-            logger.info(f"Test de l'API Twitter pour l'utilisateur: {twitter_username}")
-
-            # Test user retrieval
-            user_response = self.twitter.client.get_user(username=twitter_username)
-            if user_response and user_response.get('data'):
-                await ctx.send(f"✅ Utilisateur Twitter trouvé: @{user_response['data']['username']} (ID: {user_response['data']['id']})")
-                logger.info(f"Utilisateur Twitter trouvé: {user_response['data']}")
-
-                # Test tweets retrieval
-                tweets_response = self.twitter.client.get_users_tweets(
-                    user_response['data']['id'],
-                    max_results=10,
-                    tweet_fields=['public_metrics']
-                )
-
-                if tweets_response and tweets_response.get('data'):
-                    tweet_count = len(tweets_response['data'])
-                    await ctx.send(f"✅ {tweet_count} tweets récupérés")
-                    if tweet_count > 0:
-                        metrics = tweets_response['data'][0]['public_metrics']
-                        logger.info(f"Métriques du premier tweet: {metrics}")
-                        await ctx.send(f"Exemple de métriques: {metrics}")
-                else:
-                    await ctx.send("❌ Aucun tweet trouvé pour cet utilisateur")
-            else:
-                await ctx.send("❌ Utilisateur Twitter non trouvé")
-
-        except Exception as e:
-            logger.error(f"Erreur dans la commande testtwitter: {e}")
-            logger.exception("Traceback complet:")
-            await ctx.send(f"❌ Erreur lors du test de l'API Twitter: {str(e)}")
-
-    @commands.command(name='bothelp')
+    @commands.command(name='bothelp', help="Show available commands and their usage")
+    @commands.cooldown(1, 3, commands.BucketType.user)  # 1 use every 3 seconds per user
     async def bothelp_command(self, ctx):
         """Show available commands and their usage"""
-        logger.debug(f"Commande bothelp reçue de {ctx.author}")
         try:
             embed = discord.Embed(
-                title="Commandes du Bot",
-                description="Voici toutes les commandes disponibles :",
+                title="Bot Commands",
+                description="Here are all available commands:",
                 color=discord.Color.blue()
             )
 
             commands_list = {
-                "!points": "Voir vos points actuels",
-                "!leaderboard": "Voir le top 10 des utilisateurs",
-                "!rob @user": "Essayer de voler des points à un autre utilisateur",
-                "!linktwitter @username": "Lier votre compte Twitter",
-                "!twitterpoints": "Voir vos points d'engagement Twitter",
-                "!bothelp": "Afficher ce message d'aide",
-                "!testtwitter @username": "Tester la connexion à l'API Twitter"
+                "!points": "Check your current points",
+                "!leaderboard": "View top 10 users",
+                "!rob @user": "Try to steal points from another user",
+                "!linktwitter @username": "Link your Twitter account",
+                "!twitterpoints": "Check your Twitter engagement points",
+                "!bothelp": "Show this help message"
             }
 
             for cmd, desc in commands_list.items():
                 embed.add_field(name=cmd, value=desc, inline=False)
 
             await ctx.send(embed=embed)
-            logger.debug("Message d'aide envoyé avec succès")
+
         except Exception as e:
-            logger.error(f"Erreur dans la commande bothelp: {e}")
-            logger.exception("Traceback complet:")
-            await ctx.send("Une erreur s'est produite lors de l'affichage de l'aide.")
+            logger.error(f"Error in bothelp command: {e}")
+            await ctx.send("An error occurred while displaying help.")
 
     @commands.command(name='points')
+    @commands.cooldown(1, 3, commands.BucketType.user)  # 1 use every 3 seconds per user
     async def check_points(self, ctx):
         """Check your current points"""
         try:
@@ -99,6 +56,7 @@ class Commands(commands.Cog):
             await ctx.send("An error occurred while checking your points.")
 
     @commands.command(name='leaderboard')
+    @commands.cooldown(1, 5, commands.BucketType.user)  # 1 use every 5 seconds per user
     async def show_leaderboard(self, ctx):
         """Display the points leaderboard"""
         try:
@@ -122,9 +80,9 @@ class Commands(commands.Cog):
             await ctx.send("An error occurred while fetching the leaderboard.")
 
     @commands.command(name='rob')
+    @commands.cooldown(1, 5, commands.BucketType.user)  # 1 use every 5 seconds per user
     async def rob_user(self, ctx, victim: discord.Member):
         """Try to steal points from another user"""
-        logger.info(f"Rob command received from {ctx.author} targeting {victim}")
         if victim.id == ctx.author.id:
             await ctx.send("You can't rob yourself!")
             return
@@ -133,6 +91,7 @@ class Commands(commands.Cog):
         await ctx.send(f"{ctx.author.mention}: {message}")
 
     @commands.command(name='linktwitter')
+    @commands.cooldown(1, 5, commands.BucketType.user)  # 1 use every 5 seconds per user
     async def link_twitter(self, ctx, twitter_username: str):
         """Link your Discord account to your Twitter username"""
         logger.info(f"Link Twitter command received from {ctx.author} for {twitter_username}")
@@ -143,45 +102,55 @@ class Commands(commands.Cog):
             # Verify if the Twitter account exists
             activity = await self.twitter.get_user_activity(twitter_username)
             if activity is None:
-                await ctx.send(f"{ctx.author.mention}, ce compte Twitter n'existe pas ou n'est pas accessible.")
+                await ctx.send(f"{ctx.author.mention}, this Twitter account doesn't exist or is not accessible.")
                 return
 
             # Link the accounts
             self.points.db.link_twitter_account(ctx.author.id, twitter_username)
-            await ctx.send(f"{ctx.author.mention}, votre compte Discord est maintenant lié à Twitter @{twitter_username}!")
+            await ctx.send(f"{ctx.author.mention}, your Discord account is now linked to Twitter @{twitter_username}!")
             logger.info(f"Successfully linked Twitter account {twitter_username} to Discord user {ctx.author}")
 
         except ValueError as e:
             await ctx.send(f"{ctx.author.mention}, {str(e)}")
             logger.warning(f"Failed to link Twitter account: {e}")
         except Exception as e:
-            await ctx.send(f"{ctx.author.mention}, une erreur est survenue lors de la liaison avec Twitter. Réessayez plus tard.")
+            await ctx.send(f"{ctx.author.mention}, an error occurred while linking with Twitter. Try again later.")
             logger.error(f"Error linking Twitter account: {e}")
             logger.exception("Full traceback:")
 
     @commands.command(name='twitterpoints')
+    @commands.cooldown(1, 5, commands.BucketType.user)  # 1 use every 5 seconds per user
     async def twitter_points(self, ctx):
         """Check your Twitter engagement points"""
         logger.info(f"Twitter points command received from {ctx.author}")
         twitter_username = self.points.db.get_twitter_username(ctx.author.id)
         if not twitter_username:
-            await ctx.send(f"{ctx.author.mention}, vous devez d'abord lier votre compte Twitter avec !linktwitter @votrecompte")
+            await ctx.send(f"{ctx.author.mention}, you need to link your Twitter account first with !linktwitter @youraccount")
             return
 
         try:
             activity = await self.twitter.get_user_activity(twitter_username)
             if activity:
                 embed = discord.Embed(
-                    title="Points d'engagement Twitter",
-                    description=f"Statistiques pour @{twitter_username}",
+                    title="Twitter Engagement Points",
+                    description=f"Stats for @{twitter_username}",
                     color=discord.Color.blue()
                 )
                 embed.add_field(name="Likes", value=f"{activity['likes']} likes", inline=True)
                 embed.add_field(name="Retweets", value=f"{activity['retweets']} retweets", inline=True)
-                embed.add_field(name="Commentaires", value=f"{activity['comments']} commentaires", inline=True)
+                embed.add_field(name="Comments", value=f"{activity['comments']} comments", inline=True)
                 await ctx.send(embed=embed)
             else:
-                await ctx.send(f"{ctx.author.mention}, impossible de récupérer vos statistiques Twitter pour le moment.")
+                await ctx.send(f"{ctx.author.mention}, couldn't fetch your Twitter stats at the moment.")
         except Exception as e:
-            await ctx.send(f"{ctx.author.mention}, une erreur est survenue lors de la récupération de vos points Twitter.")
+            await ctx.send(f"{ctx.author.mention}, an error occurred while fetching your Twitter points.")
             logger.error(f"Error fetching Twitter points: {e}")
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f"Please wait {error.retry_after:.1f}s before using this command again.")
+            return
+
+        logger.error(f"Command error: {error}")
+        await ctx.send("An error occurred while processing the command.")
