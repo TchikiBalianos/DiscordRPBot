@@ -1,9 +1,8 @@
 import tweepy
 from config import *
 import logging
-import os
 import asyncio
-import time
+import os
 from datetime import datetime
 
 logger = logging.getLogger('EngagementBot')
@@ -12,15 +11,10 @@ class TwitterHandler:
     def __init__(self):
         try:
             logger.info("Initializing Twitter API...")
-
             bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
             if not bearer_token:
                 logger.error("Bearer Token is missing")
                 raise ValueError("Bearer Token is required for Twitter API v2")
-
-            logger.info("Twitter Bearer Token is present")
-            logger.info(f"Twitter API Key present: {bool(TWITTER_API_KEY)}")
-            logger.info(f"Twitter API Secret present: {bool(TWITTER_API_SECRET)}")
 
             # Configuration simple avec wait_on_rate_limit
             self.client = tweepy.Client(
@@ -32,63 +26,59 @@ class TwitterHandler:
             )
 
             if not self.client:
-                logger.error("Failed to initialize Twitter client")
                 raise Exception("Twitter client initialization failed")
 
-            # Test the connection
+            # Test initial de la connexion
             self._test_connection()
             logger.info("Twitter API initialization successful")
 
         except Exception as e:
             logger.error(f"Error initializing Twitter API: {e}")
-            logger.exception("Full initialization error traceback:")
             raise
 
     def _test_connection(self):
         try:
-            logger.debug("Testing Twitter API connection...")
-            time.sleep(2)  # Petit délai pour éviter les limites de taux
             response = self.client.get_user(username="X")
-            if response and response.get('data'):
-                logger.info("Twitter API connection test successful")
-            else:
-                logger.error("Twitter API test failed - Could not get test user info")
-                raise Exception("Failed to get test user info")
+            if not response or not response.get('data'):
+                raise Exception("Could not get test user info")
+            logger.info("Twitter API connection test successful")
         except Exception as e:
             logger.error(f"Twitter API connection test failed: {e}")
-            logger.exception("Full test connection traceback:")
             raise
 
     async def get_user_activity(self, username):
-        if not self.client:
-            logger.error("Twitter API not initialized")
-            raise ValueError("Configuration Twitter invalide")
-
+        """Récupère l'activité d'un utilisateur Twitter de manière asynchrone"""
         try:
-            logger.debug(f"Fetching Twitter activity for user {username}")
-            time.sleep(1)  # Petit délai pour éviter les limites de taux
+            logger.info(f"Getting activity for Twitter user: {username}")
 
-            # Get user ID
-            user_response = self.client.get_user(username=username)
+            # Utilise asyncio pour éviter le blocage
+            loop = asyncio.get_event_loop()
+            user_response = await loop.run_in_executor(
+                None, 
+                lambda: self.client.get_user(username=username)
+            )
+
             if not user_response or not user_response.get('data'):
-                raise ValueError(f"Le compte Twitter @{username} n'existe pas.")
+                logger.warning(f"User not found: {username}")
+                return None
 
             user_id = user_response['data']['id']
-            logger.debug(f"Found Twitter user {username} with ID {user_id}")
 
-            time.sleep(1)  # Petit délai entre les requêtes
-
-            # Get tweets with basic metrics
-            tweets_response = self.client.get_users_tweets(
-                user_id,
-                max_results=5,  # Réduit à 5 pour moins de données
-                tweet_fields=['public_metrics']
+            # Récupère les tweets récents
+            tweets_response = await loop.run_in_executor(
+                None,
+                lambda: self.client.get_users_tweets(
+                    user_id,
+                    max_results=5,
+                    tweet_fields=['public_metrics']
+                )
             )
 
             if not tweets_response or not tweets_response.get('data'):
-                logger.debug(f"No tweets found for user {username}")
+                logger.info(f"No tweets found for user {username}")
                 return {'likes': 0, 'retweets': 0, 'comments': 0}
 
+            # Calcule les métriques totales
             activity = {'likes': 0, 'retweets': 0, 'comments': 0}
             for tweet in tweets_response['data']:
                 metrics = tweet.get('public_metrics', {})
@@ -96,18 +86,9 @@ class TwitterHandler:
                 activity['retweets'] += metrics.get('retweet_count', 0)
                 activity['comments'] += metrics.get('reply_count', 0)
 
-            logger.info(f"Activity for {username}: {activity}")
+            logger.info(f"Successfully retrieved activity for {username}: {activity}")
             return activity
 
-        except ValueError as e:
-            raise
-        except tweepy.errors.TooManyRequests:
-            logger.error("Rate limit exceeded")
-            raise ValueError("Trop de requêtes Twitter. Attendez quelques minutes.")
-        except tweepy.errors.Unauthorized:
-            logger.error("Unauthorized access")
-            raise ValueError("Accès non autorisé à Twitter.")
         except Exception as e:
-            logger.error(f"Error fetching Twitter activity: {e}")
-            logger.exception("Full traceback:")
-            raise ValueError("Une erreur inattendue est survenue. Réessayez plus tard.")
+            logger.error(f"Error getting Twitter activity: {e}", exc_info=True)
+            return None
