@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import logging
+from discord.errors import TooManyRequests, Unauthorized
 
 logger = logging.getLogger('EngagementBot')
 
@@ -23,26 +24,33 @@ class Commands(commands.Cog):
             return
 
         try:
-            # Retirer le @ si présent
+            # Remove @ if present
             twitter_username = twitter_username.lstrip('@')
-            logger.info(f"Tentative de liaison du compte Twitter {twitter_username} pour {ctx.author.id}")
+            logger.info(f"Attempting to link Twitter account {twitter_username} for {ctx.author.id}")
 
-            # Vérifier si le compte Twitter existe
-            exists, twitter_id = await self.twitter.verify_account(twitter_username)
-            if not exists:
-                await ctx.send("❌ Ce compte Twitter n'existe pas ou n'est pas accessible. Si vous venez d'essayer, attendez quelques minutes en raison des limites de l'API Twitter.")
-                return
+            # Verify if Twitter account exists
+            try:
+                exists, twitter_id = await self.twitter.verify_account(twitter_username)
 
-            # Lier le compte
-            self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
-            await ctx.send(f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
+                if exists:
+                    # Link the account
+                    self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
+                    await ctx.send(f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
+                else:
+                    await ctx.send("❌ Ce compte Twitter n'existe pas. Vérifiez que le nom d'utilisateur est correct.")
+
+            except TooManyRequests:
+                await ctx.send("⏳ L'API Twitter est temporairement indisponible en raison des limites de taux. Veuillez réessayer dans quelques minutes.")
+            except Unauthorized:
+                logger.error("Twitter API authentication failed")
+                await ctx.send("❌ Erreur d'authentification avec Twitter. Un administrateur a été notifié.")
+            except Exception as e:
+                logger.error(f"Error in account verification: {str(e)}")
+                await ctx.send("❌ Une erreur s'est produite lors de la vérification du compte Twitter. Veuillez réessayer plus tard.")
 
         except Exception as e:
-            logger.error(f"Erreur lors de la liaison Twitter: {e}")
-            if "rate limit" in str(e).lower():
-                await ctx.send("❌ Le nombre de requêtes Twitter est trop élevé actuellement. Veuillez réessayer dans quelques minutes.")
-            else:
-                await ctx.send("❌ Une erreur s'est produite lors de la liaison de votre compte Twitter. Veuillez réessayer plus tard.")
+            logger.error(f"Error in link_twitter command: {str(e)}")
+            await ctx.send("❌ Une erreur inattendue s'est produite. Veuillez réessayer plus tard.")
 
     @commands.command(name='twitterstats')
     async def twitter_stats(self, ctx):
@@ -60,7 +68,10 @@ class Commands(commands.Cog):
 
             stats = await self.twitter.get_user_stats(twitter_id)
             if 'error' in stats:
-                await ctx.send(f"❌ Erreur lors de la récupération des stats: {stats['error']}")
+                if 'rate limit' in stats['error'].lower():
+                    await ctx.send("❌ Le nombre de requêtes Twitter est trop élevé actuellement. Veuillez réessayer dans quelques minutes.")
+                else:
+                    await ctx.send(f"❌ Erreur lors de la récupération des stats: {stats['error']}")
                 return
 
             embed = discord.Embed(

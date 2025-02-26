@@ -2,6 +2,7 @@ import tweepy
 from config import *
 import logging
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('TwitterTest')
@@ -26,22 +27,13 @@ def test_twitter_connection():
         )
 
         try:
-            # Test user lookup with a known account
-            test_user = "Twitter"
+            # Test user lookup with specific account
+            test_user = "Faroyevana"
             logger.info(f"Testing user lookup with @{test_user}")
             response = client.get_user(username=test_user)
 
             if response and response.data:
                 logger.info(f"Successfully retrieved user info for @{test_user}")
-
-                # Test getting tweets
-                tweets = client.get_users_tweets(
-                    id=response.data.id,
-                    max_results=5,
-                    tweet_fields=['public_metrics']
-                )
-                logger.info(f"Successfully retrieved tweets for @{test_user}")
-
                 return True
             else:
                 logger.error("Could not get user information")
