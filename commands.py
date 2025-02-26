@@ -39,6 +39,12 @@ class Commands(commands.Cog):
         self.twitter = twitter_handler
         logger.info("Commands cog initialized")
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Setup prison role when bot is ready"""
+        for guild in self.bot.guilds:
+            await self.points.setup_prison_role(guild)
+
     @commands.command(name='addpoints')
     @is_staff()
     async def add_points(self, ctx, member: discord.Member = None, amount: int = None):
@@ -283,57 +289,56 @@ class Commands(commands.Cog):
                 color=discord.Color.blue()
             )
 
-            # Base commands available to everyone
-            commands_list = {
-                "💰 Économie": {
-                    "!work": "Travailler pour gagner des points (1x par jour)",
-                    "!points": "Voir ton solde de points",
-                    "!leaderboard": "Voir le classement mensuel",
-                    "!shop": "Voir les objets disponibles à la vente",
-                    "!inventory": "Voir ton inventaire"
-                },
-                "🦹 Actions": {
-                    "!rob @user": "Tenter de voler quelqu'un",
-                    "!revenge": "Se venger de son dernier voleur",
-                    "!heist": "Commencer un braquage",
-                    "!joinheist": "Rejoindre un braquage",
-                    "!deal <montant>": "Faire un trafic de drogue",
-                    "!escape": "Tenter de fuir la police",
-                    "!combat @user <mise>": "Engager un combat avec un autre membre"
-                },
-                "🏢 Prison": {
-                    "!prison": "Voir ton statut en prison",
-                    "!activity": "Voir les activités disponibles",
-                    "!activity <nom>": "Faire une activité en prison",
-                    "!tribunal <plaidoyer>": "Demander un procès (500 points)",
-                    "!vote @user oui/non": "Voter pour un procès"
-                },
-                "🐦 Twitter": {
-                    "!linktwitter": "Lier ton compte Twitter",
-                    "!twitterstats": "Voir tes stats Twitter"
-                }
+        commands_list = {
+            "💰 Économie": {
+                "!work": "Travailler pour gagner des points (1x par jour)",
+                "!points": "Voir ton solde de points",
+                "!leaderboard": "Voir le classement mensuel",
+                "!shop": "Voir les objets disponibles à la vente",
+                "!inventory": "Voir ton inventaire"
+            },
+            "🦹 Actions": {
+                "!rob @user": "Tenter de voler quelqu'un",
+                "!revenge": "Se venger de son dernier voleur",
+                "!heist": "Commencer un braquage",
+                "!joinheist": "Rejoindre un braquage",
+                "!deal <montant>": "Faire un trafic de drogue",
+                "!escape": "Tenter de fuir la police",
+                "!combat @user <mise>": "Engager un combat avec un autre membre"
+            },
+            "🏢 Prison": {
+                "!prison": "Voir ton statut en prison",
+                "!activity": "Voir les activités disponibles",
+                "!activity <nom>": "Faire une activité en prison",
+                "!tribunal <plaidoyer>": "Demander un procès (500 points)",
+                "!vote @user oui/non": "Voter pour un procès"
+            },
+            "🐦 Twitter": {
+                "!linktwitter": "Lier ton compte Twitter",
+                "!twitterstats": "Voir tes stats Twitter"
+            }
+        }
+
+        # Add staff commands if user is staff
+        is_staff = ctx.author.guild_permissions.administrator or \
+                  any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles)
+
+        if is_staff:
+            commands_list["⚡ Staff"] = {
+                "!addpoints @user montant": "Ajouter des points à un membre",
+                "!removepoints @user montant": "Retirer des points à un membre",
+                "!freeprison @user": "Libérer un membre de prison"
             }
 
-            # Add staff commands if user is staff
-            is_staff = ctx.author.guild_permissions.administrator or \
-                      any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles)
+        for category, cmds in commands_list.items():
+            embed.add_field(
+                name=category,
+                value="\n".join([f"`{cmd}`: {desc}" for cmd, desc in cmds.items()]),
+                inline=False
+            )
 
-            if is_staff:
-                commands_list["⚡ Staff"] = {
-                    "!addpoints @user montant": "Ajouter des points à un membre",
-                    "!removepoints @user montant": "Retirer des points à un membre",
-                    "!freeprison @user": "Libérer un membre de prison"
-                }
-
-            for category, cmds in commands_list.items():
-                embed.add_field(
-                    name=category,
-                    value="\n".join([f"`{cmd}`: {desc}" for cmd, desc in cmds.items()]),
-                    inline=False
-                )
-
-            await ctx.send(embed=embed)
-            logger.info(f"Help command executed by {ctx.author}")
+        await ctx.send(embed=embed)
+        logger.info(f"Help command executed by {ctx.author}")
 
         except Exception as e:
             logger.error(f"Error in help command: {e}")
@@ -440,7 +445,7 @@ class Commands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in inventory command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
-
+            
     @commands.command(name='heist', aliases=['braquage'])
     async def heist_command(self, ctx):
         """Start a heist"""
@@ -478,12 +483,13 @@ class Commands(commands.Cog):
             logger.error(f"Error in drug_deal command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='escape', aliases=['evasion'])
+    @commands.command(name='escape', aliases=['fuite'])
     async def escape_command(self, ctx):
-        """Try to escape from prison"""
+        """Try to escape from police"""
         try:
-            success, message = await self.points.try_escape_prison(str(ctx.author.id))
+            success, message = await self.points.try_escape_police(str(ctx.author.id))
             await ctx.send(message)
+
         except Exception as e:
             logger.error(f"Error in escape command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")

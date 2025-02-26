@@ -1,23 +1,77 @@
 import random
 from datetime import datetime, timedelta
 from config import *
+import discord
+from discord.ext import commands
 
 class PointSystem:
-    def __init__(self, database):
+    def __init__(self, database, bot):
         self.db = database
+        self.bot = bot  # Store bot instance for role management
 
-    async def award_message_points(self, user_id):
-        self.db.add_points(user_id, POINTS_MESSAGE)
-        return POINTS_MESSAGE
+    async def setup_prison_role(self, guild):
+        """Setup prison role if it doesn't exist"""
+        prison_role = discord.utils.get(guild.roles, name="🔒 Prisonnier")
+        if not prison_role:
+            try:
+                # Create role with restricted permissions
+                prison_role = await guild.create_role(
+                    name="🔒 Prisonnier",
+                    color=discord.Color.dark_grey(),
+                    reason="Role for imprisoned members"
+                )
 
-    async def award_voice_points(self, user_id, minutes):
-        points = int(minutes * POINTS_VOICE_PER_MINUTE)
-        self.db.add_points(user_id, points)
-        return points
+                # Remove send messages permission in all channels
+                for channel in guild.text_channels:
+                    await channel.set_permissions(prison_role, send_messages=False)
+
+                logger.info(f"Created prison role in guild {guild.name}")
+            except Exception as e:
+                logger.error(f"Failed to create prison role: {e}")
+                return None
+        return prison_role
+
+    async def imprison_member(self, member, duration):
+        """Send member to prison and assign role"""
+        try:
+            prison_role = await self.setup_prison_role(member.guild)
+            if prison_role:
+                await member.add_roles(prison_role)
+                release_time = datetime.now().timestamp() + duration
+                self.db.set_prison_time(member.id, release_time)
+
+                # Assign random prison job
+                role_name = await self.assign_prison_role(str(member.id))
+                return True, f"🚔 {member.name} est envoyé en prison pour {duration} secondes avec le rôle de {role_name}!"
+            return False, "❌ Impossible de créer le rôle prison!"
+        except Exception as e:
+            logger.error(f"Error imprisoning member: {e}")
+            return False, "❌ Une erreur s'est produite lors de l'emprisonnement."
+
+    async def release_member(self, member):
+        """Release member from prison and remove role"""
+        try:
+            prison_role = discord.utils.get(member.guild.roles, name="🔒 Prisonnier")
+            if prison_role and prison_role in member.roles:
+                await member.remove_roles(prison_role)
+                self.db.set_prison_time(member.id, 0)
+                return True, f"🔓 {member.name} a été libéré de prison!"
+            return False, "Ce membre n'est pas en prison."
+        except Exception as e:
+            logger.error(f"Error releasing member: {e}")
+            return False, "❌ Une erreur s'est produite lors de la libération."
 
     async def try_rob(self, robber_id, victim_id):
-        """Enhanced rob system with prison risk"""
+        """Enhanced rob system with prison role"""
         now = datetime.now().timestamp()
+
+        # Get member objects
+        try:
+            guild = self.bot.guilds[0]  # Assuming bot is in only one guild
+            robber = await guild.fetch_member(int(robber_id))
+            victim = await guild.fetch_member(int(victim_id))
+        except:
+            return False, "❌ Impossible de trouver les membres!"
 
         # Check if robber is in prison
         prison_time = self.db.get_prison_time(robber_id)
@@ -25,19 +79,21 @@ class PointSystem:
             time_left = int(prison_time - now)
             return False, f"Tu es en prison! Temps restant: {time_left} secondes."
 
-        # Check cooldown
+        # Rest of the existing rob logic...
         last_rob = self.db.get_rob_cooldown(robber_id)
         if now - last_rob < ROB_COOLDOWN:
             return False, "Tu dois attendre avant de tenter un autre vol!"
 
-        # Calculate success chance
         if random.random() > ROB_SUCCESS_RATE:
             # Failed robbery - risk going to prison
             if random.random() < PRISON_RATE:
                 prison_duration = random.randint(PRISON_MIN_TIME, PRISON_MAX_TIME)
-                self.db.set_prison_time(robber_id, now + prison_duration)
-                self.db.set_rob_cooldown(robber_id)
-                return False, f"🚔 Tu t'es fait attraper! Direction la prison pour {prison_duration} secondes!"
+                success, message = await self.imprison_member(robber, prison_duration)
+                if success:
+                    self.db.set_rob_cooldown(robber_id)
+                    return False, message
+                return False, "❌ Le vol a échoué et une erreur s'est produite avec la prison!"
+
             self.db.set_rob_cooldown(robber_id)
             return False, "Le vol a échoué! Plus de chance la prochaine fois!"
 
@@ -54,8 +110,17 @@ class PointSystem:
         self.db.add_points(victim_id, -amount)
         self.db.add_points(robber_id, amount)
         self.db.set_rob_cooldown(robber_id)
-        self.db.set_last_robber(victim_id, robber_id)  # Track who robbed whom
+        self.db.set_last_robber(victim_id, robber_id)
         return True, f"Vol réussi! Tu as volé {amount} points! 💰"
+
+    async def award_message_points(self, user_id):
+        self.db.add_points(user_id, POINTS_MESSAGE)
+        return POINTS_MESSAGE
+
+    async def award_voice_points(self, user_id, minutes):
+        points = int(minutes * POINTS_VOICE_PER_MINUTE)
+        self.db.add_points(user_id, points)
+        return points
 
     async def try_revenge(self, avenger_id):
         """Try to get revenge on your last robber"""
@@ -212,7 +277,7 @@ class PointSystem:
             loss = random.randint(CHASE_MIN_LOSS, CHASE_MAX_LOSS)
             self.db.add_points(user_id, -loss)
             return False, f"🚓 La police t'a rattrapé! Tu as perdu {loss} points en amende!"
-
+            
     async def assign_prison_role(self, user_id: str):
         """Randomly assign a prison role when sent to prison"""
         role = random.choice(list(PRISON_ROLES.keys()))
@@ -340,7 +405,7 @@ class PointSystem:
         else:
             self.db.clear_active_trial(user_id)
             return False, "😔 Le tribunal t'a jugé coupable! Tu restes en prison!"
-            
+
     async def try_escape_prison(self, user_id: str):
         """Try to escape from prison with risks"""
         now = datetime.now().timestamp()

@@ -23,6 +23,7 @@ class EngagementBot(commands.Bot):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.members = True
+        intents.reactions = True  # Added for combat system
 
         logger.info(f"Configured intents: {intents.value}")
 
@@ -36,7 +37,7 @@ class EngagementBot(commands.Bot):
         # Initialize components
         try:
             self.db = Database()
-            self.point_system = PointSystem(self.db)
+            self.point_system = PointSystem(self.db, self)  # Pass bot instance to PointSystem
             self.twitter_handler = TwitterHandler()
             logger.info("Bot components initialized successfully")
         except Exception as e:
@@ -62,7 +63,12 @@ class EngagementBot(commands.Bot):
         logger.info(f'Bot is ready! Logged in as {self.user.name} (ID: {self.user.id})')
         logger.info(f"Connected to {len(self.guilds)} guilds")
 
-        # Log available commands again
+        # Initialize prison role in all guilds
+        for guild in self.guilds:
+            await self.point_system.setup_prison_role(guild)
+            logger.info(f"Prison role setup complete for guild: {guild.name}")
+
+        # Log available commands
         commands_list = [cmd.name for cmd in self.commands]
         logger.info(f"Available commands: {commands_list}")
 
@@ -103,7 +109,6 @@ class EngagementBot(commands.Bot):
 
 if __name__ == "__main__":
     try:
-        import os
         # Start the bot
         logger.info("Starting bot...")
         bot = EngagementBot()
