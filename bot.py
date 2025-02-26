@@ -30,6 +30,7 @@ class EngagementBot(commands.Bot):
             help_command=None
         )
 
+        # Initialize components
         self.db = Database()
         self.point_system = PointSystem(self.db, self)
         self.twitter_handler = TwitterHandler()
@@ -41,9 +42,10 @@ class EngagementBot(commands.Bot):
             from commands import Commands
             commands_cog = Commands(self, self.point_system, self.twitter_handler)
             await self.add_cog(commands_cog)
+
             # Log all commands after loading the cog
             logger.info("Commands cog loaded successfully")
-            all_commands = [c.name for c in self.commands]
+            all_commands = sorted([c.name for c in self.commands])
             logger.info(f"Available commands: {all_commands}")
             logger.info(f"Total number of commands: {len(all_commands)}")
         except Exception as e:
@@ -58,7 +60,7 @@ class EngagementBot(commands.Bot):
                 logger.info(f"Connected to guild: {guild.name} (ID: {guild.id})")
 
             # Log available commands again after bot is ready
-            logger.info(f"Commands available after ready: {[c.name for c in self.commands]}")
+            logger.info(f"Commands available after ready: {sorted([c.name for c in self.commands])}")
         except Exception as e:
             logger.error(f"Error in on_ready: {e}", exc_info=True)
 

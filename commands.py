@@ -28,6 +28,8 @@ def check_daily_limit(command_name):
     return commands.check(predicate)
 
 class Commands(commands.Cog):
+    """Commands cog containing all bot commands"""
+
     def __init__(self, bot, point_system, twitter_handler):
         """Initialize the Commands cog"""
         super().__init__()
@@ -38,6 +40,10 @@ class Commands(commands.Cog):
         # Log all commands that will be registered
         logger.info(f"Commands being registered: {[method for method in dir(self) if method.endswith('_command')]}")
 
+    async def cog_check(self, ctx):
+        """Global check for all commands in this cog"""
+        return ctx.guild is not None
+
     @commands.command(name='ping')
     async def ping_command(self, ctx):
         """Simple ping command to test bot responsiveness"""
@@ -47,102 +53,6 @@ class Commands(commands.Cog):
             logger.info(f"Ping command executed successfully for {ctx.author}")
         except Exception as e:
             logger.error(f"Error in ping command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='points', aliases=['money', 'balance'])
-    async def points_command(self, ctx, member: discord.Member = None):
-        """Check your points or another member's points"""
-        try:
-            target = member or ctx.author
-            points = self.points.db.get_user_points(str(target.id))
-
-            if target == ctx.author:
-                await ctx.send(f"💰 Tu as **{points}** points!")
-            else:
-                await ctx.send(f"💰 {target.name} a **{points}** points!")
-
-        except Exception as e:
-            logger.error(f"Error in points command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='work', aliases=['travail'])
-    @check_daily_limit('work')
-    async def work_command(self, ctx):
-        """Do your daily work"""
-        try:
-            success, message = await self.points.daily_work(str(ctx.author.id))
-            await ctx.send(message)
-        except Exception as e:
-            logger.error(f"Error in work command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='rob')
-    @check_daily_limit('rob')
-    async def rob_command(self, ctx, target: discord.Member = None):
-        """Rob another member"""
-        try:
-            if not target:
-                await ctx.send("❌ Mentionne la personne que tu veux voler! Exemple: `!rob @user`")
-                return
-
-            if target.id == ctx.author.id:
-                await ctx.send("❌ Tu ne peux pas te voler toi-même!")
-                return
-
-            narration = random.choice(COMMAND_NARRATIONS['rob']).format(
-                user=ctx.author.name,
-                target=target.name
-            )
-            await ctx.send(narration)
-            await asyncio.sleep(2)
-
-            success, message = await self.points.try_rob(str(ctx.author.id), str(target.id))
-            await ctx.send(message)
-
-        except Exception as e:
-            logger.error(f"Error in rob command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='revenge', aliases=['vengeance'])
-    @check_daily_limit('revenge')
-    async def revenge_command(self, ctx):
-        """Get revenge on your last robber"""
-        try:
-            success, message = await self.points.try_revenge(str(ctx.author.id))
-            await ctx.send(message)
-        except Exception as e:
-            logger.error(f"Error in revenge command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='leaderboard', aliases=['classement', 'top'])
-    async def leaderboard_command(self, ctx):
-        """Show the monthly leaderboard"""
-        try:
-            leaderboard = await self.points.get_monthly_leaderboard()
-
-            embed = discord.Embed(
-                title="🏆 Classement Mensuel des Thugz",
-                description="Les plus grands gangsters du mois:",
-                color=discord.Color.gold()
-            )
-
-            for i, (user_id, data) in enumerate(leaderboard[:10], 1):
-                try:
-                    member = await ctx.guild.fetch_member(int(user_id))
-                    name = member.name if member else f"Membre {user_id}"
-                    embed.add_field(
-                        name=f"{i}. {name}",
-                        value=f"💰 {data['points']} points",
-                        inline=False
-                    )
-                except:
-                    continue
-
-            embed.set_footer(text=f"Classement pour {datetime.now().strftime('%B %Y')}")
-            await ctx.send(embed=embed)
-
-        except Exception as e:
-            logger.error(f"Error in leaderboard command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='help', aliases=['commands', 'bothelp'])
@@ -213,216 +123,102 @@ class Commands(commands.Cog):
 
             await ctx.send(embed=embed)
             logger.info(f"Help command executed by {ctx.author}")
-
         except Exception as e:
             logger.error(f"Error in help command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='shop', aliases=['boutique'])
-    async def shop_command(self, ctx):
-        """Show the shop items"""
+    @commands.command(name='points', aliases=['money', 'balance'])
+    async def points_command(self, ctx, member: discord.Member = None):
+        """Check your points or another member's points"""
         try:
+            target = member or ctx.author
+            points = self.points.db.get_user_points(str(target.id))
+
+            if target == ctx.author:
+                await ctx.send(f"💰 Tu as **{points}** points!")
+            else:
+                await ctx.send(f"💰 {target.name} a **{points}** points!")
+        except Exception as e:
+            logger.error(f"Error in points command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='work', aliases=['travail'])
+    @check_daily_limit('work')
+    async def work_command(self, ctx):
+        """Do your daily work"""
+        try:
+            success, message = await self.points.daily_work(str(ctx.author.id))
+            await ctx.send(message)
+        except Exception as e:
+            logger.error(f"Error in work command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='rob')
+    @check_daily_limit('rob')
+    async def rob_command(self, ctx, target: discord.Member = None):
+        """Rob another member"""
+        try:
+            if not target:
+                await ctx.send("❌ Mentionne la personne que tu veux voler! Exemple: `!rob @user`")
+                return
+
+            if target.id == ctx.author.id:
+                await ctx.send("❌ Tu ne peux pas te voler toi-même!")
+                return
+
+            narration = random.choice(COMMAND_NARRATIONS['rob']).format(
+                user=ctx.author.name,
+                target=target.name
+            )
+            await ctx.send(narration)
+            await asyncio.sleep(2)
+
+            success, message = await self.points.try_rob(str(ctx.author.id), str(target.id))
+            await ctx.send(message)
+        except Exception as e:
+            logger.error(f"Error in rob command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='revenge', aliases=['vengeance'])
+    @check_daily_limit('revenge')
+    async def revenge_command(self, ctx):
+        """Get revenge on your last robber"""
+        try:
+            success, message = await self.points.try_revenge(str(ctx.author.id))
+            await ctx.send(message)
+        except Exception as e:
+            logger.error(f"Error in revenge command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='leaderboard', aliases=['classement', 'top'])
+    async def leaderboard_command(self, ctx):
+        """Show the monthly leaderboard"""
+        try:
+            leaderboard = await self.points.get_monthly_leaderboard()
+
             embed = discord.Embed(
-                title="🏪 Boutique du Crime",
-                description="Utilise !buy <item> pour acheter un objet",
+                title="🏆 Classement Mensuel des Thugz",
+                description="Les plus grands gangsters du mois:",
                 color=discord.Color.gold()
             )
 
-            # Add regular items
-            for item_id, item in SHOP_ITEMS.items():
-                embed.add_field(
-                    name=f"{item['name']} - {item['price']} points",
-                    value=f"{item['description']}\nID: `{item_id}`",
-                    inline=False
-                )
-
-            # Add special items if available
-            if SHOP_ITEMS_NEW:
-                embed.add_field(
-                    name="🌟 Items Spéciaux",
-                    value="Collection unique et limitée:",
-                    inline=False
-                )
-
-                for item_id, item in SHOP_ITEMS_NEW.items():
-                    quantity_text = f"(Reste: {item['quantity']})" if item['quantity'] > 0 else "(SOLD OUT)"
+            for i, (user_id, data) in enumerate(leaderboard[:10], 1):
+                try:
+                    member = await ctx.guild.fetch_member(int(user_id))
+                    name = member.name if member else f"Membre {user_id}"
                     embed.add_field(
-                        name=f"{item['name']} - {item['price']} points {quantity_text}",
-                        value=f"{item['description']}\nID: `{item_id}`",
+                        name=f"{i}. {name}",
+                        value=f"💰 {data['points']} points",
                         inline=False
                     )
+                except:
+                    continue
 
+            embed.set_footer(text=f"Classement pour {datetime.now().strftime('%B %Y')}")
             await ctx.send(embed=embed)
-            logger.info(f"Shop displayed to {ctx.author}")
-
         except Exception as e:
-            logger.error(f"Error in shop command: {e}", exc_info=True)
+            logger.error(f"Error in leaderboard command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='buy', aliases=['acheter'])
-    async def buy_command(self, ctx, item_id: str = None):
-        """Buy an item from the shop"""
-        try:
-            if not item_id:
-                await ctx.send("❌ Spécifie l'objet à acheter! Exemple: `!buy lockpick`")
-                return
-
-            success, message = await self.points.buy_item(str(ctx.author.id), item_id)
-            await ctx.send(message)
-
-        except Exception as e:
-            logger.error(f"Error in buy command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='inventory', aliases=['inv'])
-    async def inventory_command(self, ctx):
-        """Show your inventory"""
-        try:
-            inventory = self.points.db.get_inventory(str(ctx.author.id))
-
-            if not inventory:
-                await ctx.send("📦 Ton inventaire est vide!")
-                return
-
-            embed = discord.Embed(
-                title="📦 Ton Inventaire",
-                color=discord.Color.blue()
-            )
-
-            item_counts = {}
-            for item_id in inventory:
-                item_counts[item_id] = item_counts.get(item_id, 0) + 1
-
-            for item_id, count in item_counts.items():
-                if item_id in SHOP_ITEMS:
-                    item = SHOP_ITEMS[item_id]
-                    embed.add_field(
-                        name=f"{item['name']} x{count}",
-                        value=item['description'],
-                        inline=False
-                    )
-
-            await ctx.send(embed=embed)
-
-        except Exception as e:
-            logger.error(f"Error in inventory command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='linktwitter')
-    async def link_twitter(self, ctx, twitter_username: str = None):
-        """Link Discord account to Twitter account"""
-        try:
-            if not twitter_username:
-                await ctx.send("❌ Veuillez fournir votre nom d'utilisateur Twitter. Exemple: `!linktwitter MonCompteTwitter`")
-                return
-
-            # Clean up username
-            twitter_username = twitter_username.lstrip('@').lower().strip()
-            loading_message = await ctx.send("🔄 Vérification de votre compte Twitter en cours...")
-
-            try:
-                exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
-
-                if exists and twitter_id:
-                    self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
-                    await loading_message.edit(content=f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
-                else:
-                    await loading_message.edit(content="❌ Ce compte Twitter n'existe pas.")
-
-            except TooManyRequests:
-                await loading_message.edit(content="⏳ L'API Twitter est temporairement indisponible.")
-            except Exception as e:
-                logger.error(f"Error verifying Twitter account: {e}", exc_info=True)
-                await loading_message.edit(content="❌ Une erreur s'est produite.")
-
-        except Exception as e:
-            logger.error(f"Error in link_twitter command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='twitterstats', aliases=['twstats'])
-    async def twitter_stats(self, ctx):
-        """Check Twitter statistics"""
-        try:
-            twitter_username = self.points.db.get_twitter_username(str(ctx.author.id))
-            if not twitter_username:
-                await ctx.send("❌ Votre compte Discord n'est pas lié à Twitter. Utilisez `!linktwitter` pour le lier.")
-                return
-
-            loading_message = await ctx.send("🔄 Récupération des statistiques...")
-
-            try:
-                exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
-                if exists:
-                    stats = await self.twitter.get_user_stats(twitter_id)
-
-                    embed = discord.Embed(
-                        title=f"📊 Statistiques Twitter pour @{twitter_username}",
-                        color=discord.Color.blue()
-                    )
-
-                    embed.add_field(name="👍 Likes", value=str(stats.get('likes', 0)), inline=True)
-                    embed.add_field(name="🔄 Retweets", value=str(stats.get('retweets', 0)), inline=True)
-                    embed.add_field(name="💬 Réponses", value=str(stats.get('replies', 0)), inline=True)
-
-                    await loading_message.delete()
-                    await ctx.send(embed=embed)
-                else:
-                    await loading_message.edit(content="❌ Votre compte Twitter n'est plus accessible.")
-
-            except Exception as e:
-                logger.error(f"Error getting Twitter stats: {e}", exc_info=True)
-                await loading_message.edit(content="❌ Une erreur s'est produite.")
-
-        except Exception as e:
-            logger.error(f"Error in twitter_stats command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='addpoints')
-    @is_staff()
-    async def add_points(self, ctx, member: discord.Member = None, amount: int = None):
-        """[STAFF] Add points to a member"""
-        try:
-            if not member or amount is None:
-                await ctx.send("❌ Usage: !addpoints @user <montant>")
-                return
-
-            if amount <= 0:
-                await ctx.send("❌ Le montant doit être positif!")
-                return
-
-            self.points.db.add_points(str(member.id), amount)
-            await ctx.send(f"✅ {amount} points ajoutés à {member.name}!")
-            logger.info(f"Staff {ctx.author} added {amount} points to {member}")
-
-        except Exception as e:
-            logger.error(f"Error in add_points command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='removepoints')
-    @is_staff()
-    async def remove_points(self, ctx, member: discord.Member = None, amount: int = None):
-        """[STAFF] Remove points from a member"""
-        try:
-            if not member or amount is None:
-                await ctx.send("❌ Usage: !removepoints @user <montant>")
-                return
-
-            if amount <= 0:
-                await ctx.send("❌ Le montant doit être positif!")
-                return
-
-            current_points = self.points.db.get_user_points(str(member.id))
-            if current_points < amount:
-                amount = current_points
-
-            self.points.db.add_points(str(member.id), -amount)
-            await ctx.send(f"✅ {amount} points retirés à {member.name}!")
-            logger.info(f"Staff {ctx.author} removed {amount} points from {member}")
-
-        except Exception as e:
-            logger.error(f"Error in remove_points command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
 
     @commands.command(name='heist', aliases=['braquage'])
     @check_daily_limit('heist')
@@ -563,6 +359,204 @@ class Commands(commands.Cog):
 
         except Exception as e:
             logger.error(f"Error in tribunal command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='shop', aliases=['boutique'])
+    async def shop_command(self, ctx):
+        """Show the shop items"""
+        try:
+            embed = discord.Embed(
+                title="🏪 Boutique du Crime",
+                description="Utilise !buy <item> pour acheter un objet",
+                color=discord.Color.gold()
+            )
+
+            # Add regular items
+            for item_id, item in SHOP_ITEMS.items():
+                embed.add_field(
+                    name=f"{item['name']} - {item['price']} points",
+                    value=f"{item['description']}\nID: `{item_id}`",
+                    inline=False
+                )
+
+            # Add special items if available
+            if SHOP_ITEMS_NEW:
+                embed.add_field(
+                    name="🌟 Items Spéciaux",
+                    value="Collection unique et limitée:",
+                    inline=False
+                )
+
+                for item_id, item in SHOP_ITEMS_NEW.items():
+                    quantity_text = f"(Reste: {item['quantity']})" if item['quantity'] > 0 else "(SOLD OUT)"
+                    embed.add_field(
+                        name=f"{item['name']} - {item['price']} points {quantity_text}",
+                        value=f"{item['description']}\nID: `{item_id}`",
+                        inline=False
+                    )
+
+            await ctx.send(embed=embed)
+            logger.info(f"Shop displayed to {ctx.author}")
+        except Exception as e:
+            logger.error(f"Error in shop command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='buy', aliases=['acheter'])
+    async def buy_command(self, ctx, item_id: str = None):
+        """Buy an item from the shop"""
+        try:
+            if not item_id:
+                await ctx.send("❌ Spécifie l'objet à acheter! Exemple: `!buy lockpick`")
+                return
+
+            success, message = await self.points.buy_item(str(ctx.author.id), item_id)
+            await ctx.send(message)
+        except Exception as e:
+            logger.error(f"Error in buy command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='inventory', aliases=['inv'])
+    async def inventory_command(self, ctx):
+        """Show your inventory"""
+        try:
+            inventory = self.points.db.get_inventory(str(ctx.author.id))
+
+            if not inventory:
+                await ctx.send("📦 Ton inventaire est vide!")
+                return
+
+            embed = discord.Embed(
+                title="📦 Ton Inventaire",
+                color=discord.Color.blue()
+            )
+
+            item_counts = {}
+            for item_id in inventory:
+                item_counts[item_id] = item_counts.get(item_id, 0) + 1
+
+            for item_id, count in item_counts.items():
+                if item_id in SHOP_ITEMS:
+                    item = SHOP_ITEMS[item_id]
+                    embed.add_field(
+                        name=f"{item['name']} x{count}",
+                        value=item['description'],
+                        inline=False
+                    )
+
+            await ctx.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error in inventory command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='addpoints')
+    @is_staff()
+    async def add_points(self, ctx, member: discord.Member = None, amount: int = None):
+        """[STAFF] Add points to a member"""
+        try:
+            if not member or amount is None:
+                await ctx.send("❌ Usage: !addpoints @user <montant>")
+                return
+
+            if amount <= 0:
+                await ctx.send("❌ Le montant doit être positif!")
+                return
+
+            self.points.db.add_points(str(member.id), amount)
+            await ctx.send(f"✅ {amount} points ajoutés à {member.name}!")
+            logger.info(f"Staff {ctx.author} added {amount} points to {member}")
+        except Exception as e:
+            logger.error(f"Error in add_points command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='removepoints')
+    @is_staff()
+    async def remove_points(self, ctx, member: discord.Member = None, amount: int = None):
+        """[STAFF] Remove points from a member"""
+        try:
+            if not member or amount is None:
+                await ctx.send("❌ Usage: !removepoints @user <montant>")
+                return
+
+            if amount <= 0:
+                await ctx.send("❌ Le montant doit être positif!")
+                return
+
+            current_points = self.points.db.get_user_points(str(member.id))
+            if current_points < amount:
+                amount = current_points
+
+            self.points.db.add_points(str(member.id), -amount)
+            await ctx.send(f"✅ {amount} points retirés à {member.name}!")
+            logger.info(f"Staff {ctx.author} removed {amount} points from {member}")
+        except Exception as e:
+            logger.error(f"Error in remove_points command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='linktwitter')
+    async def link_twitter(self, ctx, twitter_username: str = None):
+        """Link Discord account to Twitter account"""
+        try:
+            if not twitter_username:
+                await ctx.send("❌ Veuillez fournir votre nom d'utilisateur Twitter. Exemple: `!linktwitter MonCompteTwitter`")
+                return
+
+            # Clean up username
+            twitter_username = twitter_username.lstrip('@').lower().strip()
+            loading_message = await ctx.send("🔄 Vérification de votre compte Twitter en cours...")
+
+            try:
+                exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
+
+                if exists and twitter_id:
+                    self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
+                    await loading_message.edit(content=f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
+                else:
+                    await loading_message.edit(content="❌ Ce compte Twitter n'existe pas.")
+
+            except TooManyRequests:
+                await loading_message.edit(content="⏳ L'API Twitter est temporairement indisponible.")
+            except Exception as e:
+                logger.error(f"Error verifying Twitter account: {e}", exc_info=True)
+                await loading_message.edit(content="❌ Une erreur s'est produite.")
+        except Exception as e:
+            logger.error(f"Error in link_twitter command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='twitterstats', aliases=['twstats'])
+    async def twitter_stats(self, ctx):
+        """Check Twitter statistics"""
+        try:
+            twitter_username = self.points.db.get_twitter_username(str(ctx.author.id))
+            if not twitter_username:
+                await ctx.send("❌ Votre compte Discord n'est pas lié à Twitter. Utilisez `!linktwitter` pour le lier.")
+                return
+
+            loading_message = await ctx.send("🔄 Récupération des statistiques...")
+
+            try:
+                exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
+                if exists:
+                    stats = await self.twitter.get_user_stats(twitter_id)
+
+                    embed = discord.Embed(
+                        title=f"📊 Statistiques Twitter pour @{twitter_username}",
+                        color=discord.Color.blue()
+                    )
+
+                    embed.add_field(name="👍 Likes", value=str(stats.get('likes', 0)), inline=True)
+                    embed.add_field(name="🔄 Retweets", value=str(stats.get('retweets', 0)), inline=True)
+                    embed.add_field(name="💬 Réponses", value=str(stats.get('replies', 0)), inline=True)
+
+                    await loading_message.delete()
+                    await ctx.send(embed=embed)
+                else:
+                    await loading_message.edit(content="❌ Votre compte Twitter n'est plus accessible.")
+
+            except Exception as e:
+                logger.error(f"Error getting Twitter stats: {e}", exc_info=True)
+                await loading_message.edit(content="❌ Une erreur s'est produite.")
+        except Exception as e:
+            logger.error(f"Error in twitter_stats command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.Cog.listener()
