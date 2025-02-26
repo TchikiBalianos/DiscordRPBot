@@ -1,6 +1,9 @@
 import json
 import os
 from datetime import datetime
+import logging
+
+logger = logging.getLogger('EngagementBot')
 
 class Database:
     def __init__(self):
@@ -18,15 +21,21 @@ class Database:
             if os.path.exists('data.json'):
                 with open('data.json', 'r') as f:
                     self.data = json.load(f)
+                    logger.info("Successfully loaded data from data.json")
+                    logger.debug(f"Current Twitter links: {self.data['twitter_links']}")
+            else:
+                logger.info("No existing data.json found, starting with empty database")
         except Exception as e:
-            print(f"Error loading data: {e}")
+            logger.error(f"Error loading data: {e}", exc_info=True)
 
     def save_data(self):
         try:
             with open('data.json', 'w') as f:
                 json.dump(self.data, f)
+                logger.info("Successfully saved data to data.json")
         except Exception as e:
-            print(f"Error saving data: {e}")
+            logger.error(f"Error saving data: {e}", exc_info=True)
+            raise  # Propagate the error so we can catch it in the calling function
 
     def get_user_points(self, user_id):
         return self.data['users'].get(str(user_id), {'points': 0})['points']
@@ -72,25 +81,31 @@ class Database:
         """Lie un compte Twitter à un ID Discord"""
         discord_id = str(discord_id)
         twitter_username = twitter_username.lower()
-        self.data['twitter_links'][discord_id] = twitter_username
-        print(f"Linked Twitter account {twitter_username} to Discord ID {discord_id}")  # Debug print
-        self.save_data()
 
-        # Initialize stats if they don't exist
-        if discord_id not in self.data['twitter_stats']:
-            self.data['twitter_stats'][discord_id] = {
-                'likes': 0,
-                'month': datetime.now().month,
-                'year': datetime.now().year,
-                'last_reset': datetime.now().timestamp()
-            }
+        try:
+            self.data['twitter_links'][discord_id] = twitter_username
+            logger.info(f"Linked Twitter account {twitter_username} to Discord ID {discord_id}")
+
+            # Initialize stats if they don't exist
+            if discord_id not in self.data['twitter_stats']:
+                self.data['twitter_stats'][discord_id] = {
+                    'likes': 0,
+                    'month': datetime.now().month,
+                    'year': datetime.now().year,
+                    'last_reset': datetime.now().timestamp()
+                }
+
             self.save_data()
+            logger.info(f"Successfully saved Twitter link and stats for {discord_id}")
+        except Exception as e:
+            logger.error(f"Error in link_twitter_account: {e}", exc_info=True)
+            raise
 
     def get_twitter_username(self, discord_id):
         """Récupère le nom d'utilisateur Twitter lié à un ID Discord"""
         discord_id = str(discord_id)
         username = self.data['twitter_links'].get(discord_id)
-        print(f"Retrieved Twitter username for Discord ID {discord_id}: {username}")  # Debug print
+        logger.info(f"Retrieved Twitter username for Discord ID {discord_id}: {username}")
         return username
 
     def get_discord_id_by_twitter(self, twitter_username):
@@ -101,7 +116,6 @@ class Database:
                 return discord_id
         return None
 
-    # Nouvelles méthodes pour les statistiques Twitter
     def get_twitter_stats(self, discord_id):
         """Récupère les statistiques Twitter du mois en cours pour un utilisateur"""
         discord_id = str(discord_id)
@@ -136,13 +150,18 @@ class Database:
         discord_id = str(discord_id)
         current_stats = self.get_twitter_stats(discord_id)  # Ceci va gérer la réinitialisation si nécessaire
 
-        self.data['twitter_stats'][discord_id] = {
-            'likes': new_stats['likes'],
-            'month': datetime.now().month,
-            'year': datetime.now().year,
-            'last_reset': current_stats.get('last_reset', datetime.now().timestamp())
-        }
-        self.save_data()
+        try:
+            self.data['twitter_stats'][discord_id] = {
+                'likes': new_stats.get('likes', 0),
+                'month': datetime.now().month,
+                'year': datetime.now().year,
+                'last_reset': current_stats.get('last_reset', datetime.now().timestamp())
+            }
+            self.save_data()
+            logger.info(f"Successfully updated Twitter stats for {discord_id}")
+        except Exception as e:
+            logger.error(f"Error updating Twitter stats: {e}", exc_info=True)
+            raise
 
     def get_all_twitter_users(self):
         """Récupère tous les utilisateurs ayant lié leur compte Twitter"""

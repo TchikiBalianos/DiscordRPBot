@@ -5,6 +5,7 @@ from database import Database
 from point_system import PointSystem
 from twitter_handler import TwitterHandler
 from datetime import datetime
+from config import POINTS_TWITTER_LIKE
 
 # Configure logging
 logging.basicConfig(
@@ -50,15 +51,26 @@ class CommandsCog(commands.Cog):
             twitter_username = twitter_username.lstrip('@')
 
             # Verify that the Twitter account exists
+            logger.info(f"Attempting to get user activity for {twitter_username}")
             user_info = await self.twitter.get_user_activity(twitter_username)
+            logger.info(f"Received user info: {user_info}")
+
             if user_info is None:
                 await ctx.send("❌ Ce compte Twitter n'existe pas ou n'est pas accessible.")
                 return
-            elif 'error' in user_info and user_info['error'] == 'rate_limit':
-                await ctx.send(f"⚠️ {user_info['message']}")
+            elif 'error' in user_info:
+                if user_info['error'] == 'rate_limit':
+                    await ctx.send(f"⚠️ {user_info['message']}")
+                elif user_info['error'] == 'auth':
+                    await ctx.send(f"⚠️ {user_info['message']}")
+                elif user_info['error'] == 'not_found':
+                    await ctx.send(f"❌ {user_info['message']}")
+                else:
+                    await ctx.send(f"⚠️ {user_info['message']}")
                 return
 
             # Store the link in database
+            logger.info(f"Storing Twitter link in database for user {ctx.author.id}")
             self.points.db.link_twitter_account(ctx.author.id, twitter_username)
             await ctx.send(f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
             logger.info(f"Twitter account @{twitter_username} linked to Discord user {ctx.author}")
@@ -71,7 +83,7 @@ class CommandsCog(commands.Cog):
 
         except Exception as e:
             logger.error(f"Error linking Twitter account: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite lors de la liaison du compte Twitter.")
+            await ctx.send(f"❌ Une erreur s'est produite lors de la liaison du compte Twitter: {str(e)}")
 
     @commands.command(name='twitterstats')
     async def twitter_stats(self, ctx):
