@@ -6,64 +6,17 @@ logger = logging.getLogger('EngagementBot')
 
 class Commands(commands.Cog):
     def __init__(self, bot, point_system, twitter_handler):
-        logger.info("Starting Commands cog initialization...")
         self.bot = bot
         self.points = point_system
         self.twitter = twitter_handler
-        super().__init__()  # Initialize the parent class after setting attributes
+        super().__init__()
         logger.info("Commands cog initialized")
-        logger.info(f"Available commands: {[cmd.name for cmd in self.__cog_commands__]}")
 
-    @commands.command(name='ping_test')
+    @commands.command(name='ping')
     async def ping_command(self, ctx):
         """Simple command to test if the bot is responding"""
         logger.info(f"Ping command received from {ctx.author}")
-        try:
-            await ctx.send('Pong!')
-            logger.info("Ping command executed successfully")
-        except Exception as e:
-            logger.error(f"Error in ping command: {e}", exc_info=True)
-            await ctx.send("An error occurred.")
-
-    @commands.command(name='test')
-    async def test_command(self, ctx):
-        """Simple test command to verify command registration"""
-        logger.info(f"Test command received from {ctx.author}")
-        try:
-            await ctx.send('Test command working!')
-            logger.info("Test command executed successfully")
-        except Exception as e:
-            logger.error(f"Error in test command: {e}", exc_info=True)
-            await ctx.send("An error occurred.")
-
-    @commands.command(name='bothelp')
-    async def bothelp_command(self, ctx):
-        """Show available commands and their usage"""
-        try:
-            logger.info(f"Help command received from {ctx.author}")
-            embed = discord.Embed(
-                title="Bot Commands",
-                description="Here are all available commands:",
-                color=discord.Color.blue()
-            )
-
-            commands_list = {
-                "!ping_test": "Test if bot is responding",
-                "!points": "Check your current points",
-                "!leaderboard": "View top 10 users",
-                "!rob @user": "Try to steal points from another user",
-                "!bothelp": "Show this help message",
-                "!test": "Test command to verify registration"
-            }
-
-            for cmd, desc in commands_list.items():
-                embed.add_field(name=cmd, value=desc, inline=False)
-
-            await ctx.send(embed=embed)
-            logger.info("Help command executed successfully")
-        except Exception as e:
-            logger.error(f"Error in bothelp command: {e}", exc_info=True)
-            await ctx.send("An error occurred while displaying help.")
+        await ctx.send('Pong!')
 
     @commands.command(name='points')
     async def check_points(self, ctx):
@@ -112,12 +65,111 @@ class Commands(commands.Cog):
             logger.error(f"Error in rob command: {e}", exc_info=True)
             await ctx.send("An error occurred while attempting to rob.")
 
-    @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
-        """Handle command errors"""
-        if isinstance(error, commands.CommandNotFound):
-            logger.warning(f"Command not found: {ctx.message.content}")
-            await ctx.send(f"Command not found. Use !bothelp to see available commands.")
-        else:
-            logger.error(f"Command error: {error}", exc_info=True)
-            await ctx.send("An error occurred while processing the command.")
+    @commands.command(name='linktwitter')
+    async def link_twitter(self, ctx, twitter_username: str = None):
+        """Link your Discord account to your Twitter account"""
+        if not twitter_username:
+            await ctx.send("❌ Please provide your Twitter username. Example: `!linktwitter TwitterDev`")
+            return
+
+        exists, twitter_id = await self.twitter.verify_account(twitter_username)
+        if not exists:
+            await ctx.send("❌ This Twitter account doesn't exist.")
+            return
+
+        try:
+            self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
+            await ctx.send(f"✅ Your Discord account is now linked to Twitter @{twitter_username}")
+        except Exception as e:
+            logger.error(f"Error linking Twitter: {e}")
+            await ctx.send("❌ An error occurred while linking your Twitter account.")
+
+    @commands.command(name='twitterstats')
+    async def twitter_stats(self, ctx, days: int = 7):
+        """Check your Twitter statistics for the last X days"""
+        try:
+            logger.info(f"Twitter stats command received from {ctx.author}")
+
+            if days < 1 or days > 30:
+                await ctx.send("❌ Please specify a number of days between 1 and 30.")
+                return
+
+            twitter_username = self.points.db.get_twitter_username(str(ctx.author.id))
+            logger.info(f"Found Twitter username: {twitter_username}")
+
+            if not twitter_username:
+                await ctx.send("❌ Your Discord account is not linked to Twitter. Use !linktwitter to link it.")
+                return
+
+            # First message to show we're working
+            status_message = await ctx.send("🔄 Fetching your Twitter stats...")
+
+            # Verify account
+            logger.info(f"Verifying Twitter account: {twitter_username}")
+            exists, twitter_id = await self.twitter.verify_account(twitter_username)
+
+            if not exists or not twitter_id:
+                await status_message.edit(content="❌ Could not verify your Twitter account. Please try linking it again with !linktwitter")
+                return
+
+            # Get stats
+            logger.info(f"Getting stats for Twitter ID: {twitter_id}")
+            stats = await self.twitter.get_user_stats(twitter_id, days)
+
+            if 'error' in stats:
+                await status_message.edit(content=f"❌ Error getting Twitter stats: {stats['error']}")
+                return
+
+            # Create embed message
+            embed = discord.Embed(
+                title=f"Twitter Stats for @{twitter_username}",
+                description=f"Last {days} days:",
+                color=discord.Color.blue()
+            )
+
+            # Activity stats
+            embed.add_field(
+                name="📊 Activity",
+                value=f"Total Tweets: {stats['tweets']}\nEngagement Rate: {stats['engagement_rate']}%",
+                inline=False
+            )
+
+            # Engagement stats with emoji
+            embed.add_field(name="👍 Likes", value=str(stats['likes']), inline=True)
+            embed.add_field(name="🔄 Retweets", value=str(stats['retweets']), inline=True)
+            embed.add_field(name="💬 Replies", value=str(stats['replies']), inline=True)
+
+            await status_message.edit(content=None, embed=embed)
+            logger.info(f"Successfully sent Twitter stats for {twitter_username}")
+
+        except Exception as e:
+            logger.error(f"Error in twitter_stats command: {e}", exc_info=True)
+            await ctx.send("❌ An error occurred while fetching Twitter stats.")
+
+    @commands.command(name='bothelp')
+    async def bothelp_command(self, ctx):
+        """Show available commands and their usage"""
+        try:
+            embed = discord.Embed(
+                title="Bot Commands",
+                description="Here are all available commands:",
+                color=discord.Color.blue()
+            )
+
+            commands_list = {
+                "!ping": "Test if bot is responding",
+                "!points": "Check your current points",
+                "!leaderboard": "View top 10 users",
+                "!rob @user": "Try to steal points from another user",
+                "!linktwitter": "Link your Twitter account",
+                "!twitterstats [days]": "View your Twitter stats (default: 7 days)",
+                "!bothelp": "Show this help message"
+            }
+
+            for cmd, desc in commands_list.items():
+                embed.add_field(name=cmd, value=desc, inline=False)
+
+            await ctx.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error in bothelp command: {e}", exc_info=True)
+            await ctx.send("An error occurred while displaying help.")

@@ -78,10 +78,10 @@ class EngagementBot(commands.Bot):
         """Handle command errors"""
         if isinstance(error, commands.CommandNotFound):
             logger.warning(f"Command not found: {ctx.message.content}")
-            await ctx.send(f"Commande non trouvée. Utilisez !help pour voir les commandes disponibles.")
+            await ctx.send(f"Command not found. Use !bothelp to see available commands.")
         else:
             logger.error(f"Command error: {error}", exc_info=True)
-            await ctx.send("Une erreur s'est produite lors du traitement de la commande.")
+            await ctx.send("An error occurred while processing the command.")
             # Log the full context of the error
             logger.error(f"Error context - Channel: {ctx.channel}, Author: {ctx.author}, Message: {ctx.message.content}")
 

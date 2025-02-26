@@ -1,135 +1,92 @@
 import tweepy
 from config import *
 import logging
-import asyncio
-import os
-from datetime import datetime, timedelta
-from typing import Optional, Dict
+from datetime import datetime
 
 logger = logging.getLogger('EngagementBot')
 
 class TwitterHandler:
     def __init__(self):
+        """Initialize Twitter API with basic functionality"""
         try:
             logger.info("Initializing Twitter API...")
-            bearer_token = TWITTER_BEARER_TOKEN
-            if not bearer_token:
-                logger.error("Bearer Token is missing")
-                raise ValueError("Bearer Token is required for Twitter API v2")
-
-            # Initialize with bearer token only for read-only access
-            logger.info(f"Bearer Token present: {bool(bearer_token)}")
-
             self.client = tweepy.Client(
-                bearer_token=bearer_token,
+                bearer_token=TWITTER_BEARER_TOKEN,
                 wait_on_rate_limit=True
             )
-
-            if not self.client:
-                raise Exception("Twitter client initialization failed")
-
-            # Test connection
-            try:
-                test_response = self.client.get_user(username="X")
-                if test_response and test_response.data:
-                    logger.info("Twitter API connection test successful")
-                else:
-                    logger.warning("Twitter API connection test returned no data")
-            except Exception as e:
-                logger.error(f"Twitter API connection test failed: {e}", exc_info=True)
-
-            # Cache for user data
-            self._cache = {}
-            self._cache_duration = timedelta(minutes=15)
-            logger.info("Twitter API initialization successful")
-
+            logger.info("Twitter API initialized")
         except Exception as e:
             logger.error(f"Error initializing Twitter API: {e}")
             raise
 
-    async def get_user_activity(self, username):
-        """Get user's Twitter activity asynchronously"""
+    async def verify_account(self, username: str) -> tuple[bool, str]:
+        """Verify if a Twitter account exists"""
         try:
-            logger.info(f"Getting activity for Twitter user: {username}")
+            username = username.lstrip('@')
+            logger.info(f"Verifying Twitter account: {username}")
 
-            # Check cache first
-            cache_key = f"activity_{username}"
-            cached_data = self._get_from_cache(cache_key)
-            if cached_data:
-                logger.info(f"Returning cached data for {username}")
-                return cached_data
+            response = self.client.get_user(
+                username=username,
+                user_fields=['public_metrics']
+            )
 
-            # Use asyncio to avoid blocking
-            loop = asyncio.get_event_loop()
-            try:
-                logger.debug(f"Making API request for user @{username}")
-                user_response = await loop.run_in_executor(
-                    None, 
-                    lambda: self.client.get_user(username=username)
-                )
-                logger.debug(f"Raw user response: {user_response}")
-            except tweepy.errors.TooManyRequests as e:
-                wait_time = int(e.response.headers.get('x-rate-limit-reset', 0)) - int(datetime.now().timestamp())
-                wait_time = max(wait_time, 60)  # Minimum wait of 60 seconds
-                logger.warning(f"Rate limit reached while fetching user {username}. Wait time: {wait_time} seconds")
-                return {
-                    'error': 'rate_limit',
-                    'message': f"Limite d'API atteinte. Veuillez réessayer dans {wait_time//60} minutes."
-                }
-            except tweepy.errors.Unauthorized as e:
-                logger.error(f"Authentication failed: {e}")
-                return {
-                    'error': 'auth',
-                    'message': "Erreur d'authentification Twitter. Veuillez contacter l'administrateur."
-                }
-            except tweepy.errors.NotFound as e:
-                logger.error(f"User not found: {username}")
-                return {
-                    'error': 'not_found',
-                    'message': f"Le compte Twitter @{username} n'existe pas."
-                }
-            except Exception as e:
-                logger.error(f"Error fetching user info: {e}", exc_info=True)
-                return {
-                    'error': 'unknown',
-                    'message': f"Une erreur s'est produite en accédant à Twitter: {str(e)}"
-                }
-
-            if not user_response or not user_response.data:
-                logger.warning(f"User not found: {username}")
-                return {
-                    'error': 'not_found',
-                    'message': f"Le compte Twitter @{username} n'existe pas ou n'est pas accessible."
-                }
-
-            user_id = user_response.data.id
-            logger.info(f"User ID for @{username}: {user_id}")
-
-            # For testing: Return success with test data
-            test_activity = {'likes': 10}  # Test data
-            self._store_in_cache(cache_key, test_activity)
-            logger.info(f"Returning test activity for {username}: {test_activity}")
-            return test_activity
+            if response and response.data:
+                user_id = response.data.id
+                logger.info(f"Found Twitter user: {username} with ID: {user_id}")
+                return True, user_id
+            else:
+                logger.warning(f"No data returned for username: {username}")
+                return False, None
 
         except Exception as e:
-            logger.error(f"Error getting Twitter activity: {e}", exc_info=True)
-            return {
-                'error': 'unknown',
-                'message': "Une erreur inattendue s'est produite lors de l'accès à Twitter."
+            logger.error(f"Error in verify_account: {e}", exc_info=True)
+            return False, None
+
+    async def get_user_stats(self, twitter_id: str, days: int = 7) -> dict:
+        """Get user's Twitter stats for the last X days"""
+        try:
+            logger.info(f"Getting stats for Twitter ID: {twitter_id}")
+
+            # Get user's recent tweets
+            logger.info("Fetching tweets...")
+            tweets = self.client.get_users_tweets(
+                id=twitter_id,
+                max_results=10,  # Reduced for testing
+                tweet_fields=['public_metrics']
+            )
+
+            logger.info(f"Tweets response: {tweets}")
+
+            # Initialize stats
+            stats = {
+                'likes': 0,
+                'retweets': 0,
+                'replies': 0,
+                'tweets': 0,
+                'engagement_rate': 0.0
             }
 
-    def _get_from_cache(self, cache_key: str) -> Optional[Dict]:
-        """Get data from cache if it exists and is not expired"""
-        if cache_key in self._cache:
-            data, timestamp = self._cache[cache_key]
-            if datetime.now() - timestamp < self._cache_duration:
-                logger.debug(f"Cache hit for key: {cache_key}")
-                return data
-            logger.debug(f"Cache expired for key: {cache_key}")
-            del self._cache[cache_key]
-        return None
+            if not tweets or not tweets.data:
+                logger.warning(f"No tweets found for user {twitter_id}")
+                return stats
 
-    def _store_in_cache(self, cache_key: str, data: Dict):
-        """Store data in cache with current timestamp"""
-        self._cache[cache_key] = (data, datetime.now())
-        logger.debug(f"Stored in cache: {cache_key}")
+            # Calculate engagement
+            for tweet in tweets.data:
+                logger.info(f"Processing tweet: {tweet.id}")
+                stats['tweets'] += 1
+                metrics = tweet.public_metrics
+                stats['likes'] += metrics.get('like_count', 0)
+                stats['retweets'] += metrics.get('retweet_count', 0)
+                stats['replies'] += metrics.get('reply_count', 0)
+
+            # Calculate engagement rate
+            total_engagements = stats['likes'] + stats['retweets'] + stats['replies']
+            if stats['tweets'] > 0:
+                stats['engagement_rate'] = round(total_engagements / stats['tweets'], 2)
+
+            logger.info(f"Final stats for {twitter_id}: {stats}")
+            return stats
+
+        except Exception as e:
+            logger.error(f"Error in get_user_stats: {e}", exc_info=True)
+            return {'error': str(e)}
