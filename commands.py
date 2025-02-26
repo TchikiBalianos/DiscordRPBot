@@ -1,9 +1,11 @@
 from functools import wraps
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import logging
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
 from datetime import datetime, timedelta
+import random
+import asyncio
 
 logger = logging.getLogger('EngagementBot')
 
@@ -15,21 +17,15 @@ def is_staff():
         return any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles)
     return commands.check(predicate)
 
-SHOP_ITEMS = {
-    "lockpick": {"name": "Lockpick", "price": 50, "description": "Increases heist success rate by 10%"},
-    "getaway_car": {"name": "Getaway Car", "price": 200, "description": "Increases escape success rate by 20%"},
-    "burner_phone": {"name": "Burner Phone", "price": 100, "description": "Reduces chance of being caught during drug deals by 15%"}
-}
-
-DRUG_DEAL_MIN_INVESTMENT = 100
-
-COMBAT_MOVES = ["👊", "🦵", "🛡️"]
-VOTE_REACTIONS = ["✅", "❌"]
-PRISON_ACTIVITIES = { #Example data, needs to be defined elsewhere in the project
-    'clean': {'name': 'Nettoyer les cellules', 'points': 5},
-    'cook': {'name': 'Préparer les repas', 'points': 10},
-    'gardening': {'name': 'Entretenir le jardin', 'points': 8}
-}
+def check_daily_limit(command_name):
+    """Decorator to check daily command limits"""
+    async def predicate(ctx):
+        usage = ctx.bot.point_system.db.get_daily_usage(str(ctx.author.id), command_name)
+        if usage >= DAILY_LIMITS.get(command_name, float('inf')):
+            await ctx.send(f"❌ Tu as atteint la limite quotidienne pour cette commande ({DAILY_LIMITS[command_name]}x par jour)")
+            return False
+        return True
+    return commands.check(predicate)
 
 class Commands(commands.Cog):
     def __init__(self, bot, point_system, twitter_handler):
@@ -38,6 +34,7 @@ class Commands(commands.Cog):
         self.points = point_system
         self.twitter = twitter_handler
         logger.info("Commands cog initialized")
+        self.lottery_task.start()
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -191,6 +188,7 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur inattendue s'est produite.")
 
     @commands.command(name='rob')
+    @check_daily_limit('rob')
     async def rob_command(self, ctx, target: discord.Member = None):
         """Rob another member"""
         try:
@@ -210,6 +208,7 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='revenge', aliases=['vengeance'])
+    @check_daily_limit('revenge')
     async def revenge_command(self, ctx):
         """Get revenge on your last robber"""
         try:
@@ -221,6 +220,7 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='work', aliases=['travail'])
+    @check_daily_limit('work')
     async def work_command(self, ctx):
         """Do your daily work"""
         try:
@@ -289,56 +289,67 @@ class Commands(commands.Cog):
                 color=discord.Color.blue()
             )
 
-        commands_list = {
-            "💰 Économie": {
-                "!work": "Travailler pour gagner des points (1x par jour)",
-                "!points": "Voir ton solde de points",
-                "!leaderboard": "Voir le classement mensuel",
-                "!shop": "Voir les objets disponibles à la vente",
-                "!inventory": "Voir ton inventaire"
-            },
-            "🦹 Actions": {
-                "!rob @user": "Tenter de voler quelqu'un",
-                "!revenge": "Se venger de son dernier voleur",
-                "!heist": "Commencer un braquage",
-                "!joinheist": "Rejoindre un braquage",
-                "!deal <montant>": "Faire un trafic de drogue",
-                "!escape": "Tenter de fuir la police",
-                "!combat @user <mise>": "Engager un combat avec un autre membre"
-            },
-            "🏢 Prison": {
-                "!prison": "Voir ton statut en prison",
-                "!activity": "Voir les activités disponibles",
-                "!activity <nom>": "Faire une activité en prison",
-                "!tribunal <plaidoyer>": "Demander un procès (500 points)",
-                "!vote @user oui/non": "Voter pour un procès"
-            },
-            "🐦 Twitter": {
-                "!linktwitter": "Lier ton compte Twitter",
-                "!twitterstats": "Voir tes stats Twitter"
-            }
-        }
-
-        # Add staff commands if user is staff
-        is_staff = ctx.author.guild_permissions.administrator or \
-                  any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles)
-
-        if is_staff:
-            commands_list["⚡ Staff"] = {
-                "!addpoints @user montant": "Ajouter des points à un membre",
-                "!removepoints @user montant": "Retirer des points à un membre",
-                "!freeprison @user": "Libérer un membre de prison"
+            commands_list = {
+                "💰 Économie": {
+                    "!work": "Travailler pour gagner des points (1x par jour)",
+                    "!points": "Voir ton solde de points",
+                    "!leaderboard": "Voir le classement mensuel",
+                    "!shop": "Voir les objets disponibles à la vente",
+                    "!inventory": "Voir ton inventaire",
+                    "!lottery": "Acheter un ticket de loto",
+                },
+                "🦹 Actions": {
+                    "!rob @user": "Tenter de voler quelqu'un (3x par jour)",
+                    "!revenge": "Se venger de son dernier voleur (1x par jour)",
+                    "!heist": "Commencer un braquage (2x par jour)",
+                    "!joinheist": "Rejoindre un braquage",
+                    "!deal <montant>": "Faire un trafic de drogue (5x par jour)",
+                    "!escape": "Tenter de fuir la prison (2x par jour)",
+                    "!combat @user <mise>": "Engager un combat (5x par jour)",
+                    "!roulette <mise>": "Jouer à la roulette russe (10x par jour)",
+                    "!race <numéro> <mise>": "Parier sur une course de chevaux (15x par jour)",
+                    "!dice @user <mise>": "Défier un autre membre à un duel de dés (5x par jour)"
+                },
+                "🏢 Prison": {
+                    "!prison": "Voir ton statut en prison",
+                    "!activity": "Voir les activités disponibles",
+                    "!activity <nom>": "Faire une activité en prison",
+                    "!tribunal <plaidoyer>": "Demander un procès (500 points)",
+                    "!vote @user oui/non": "Voter pour un procès"
+                },
+                "🐦 Twitter": {
+                    "!linktwitter": "Lier ton compte Twitter",
+                    "!twitterstats": "Voir tes stats Twitter"
+                }
             }
 
-        for category, cmds in commands_list.items():
-            embed.add_field(
-                name=category,
-                value="\n".join([f"`{cmd}`: {desc}" for cmd, desc in cmds.items()]),
-                inline=False
-            )
+            # Add staff commands if user is staff
+            is_staff = ctx.author.guild_permissions.administrator or \
+                      any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles)
 
-        await ctx.send(embed=embed)
-        logger.info(f"Help command executed by {ctx.author}")
+            if is_staff:
+                commands_list["⚡ Staff"] = {
+                    "!addpoints @user montant": "Ajouter des points à un membre",
+                    "!removepoints @user montant": "Retirer des points à un membre",
+                    "!freeprison @user": "Libérer un membre de prison"
+                }
+
+            # Add daily limits information
+            limits_info = "📊 Limites quotidiennes:\n" + "\n".join([
+                f"• {cmd.capitalize()}: {limit}x par jour"
+                for cmd, limit in DAILY_LIMITS.items()
+            ])
+            embed.add_field(name="⚠️ Limites", value=limits_info, inline=False)
+
+            for category, cmds in commands_list.items():
+                embed.add_field(
+                    name=category,
+                    value="\n".join([f"`{cmd}`: {desc}" for cmd, desc in cmds.items()]),
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+            logger.info(f"Help command executed by {ctx.author}")
 
         except Exception as e:
             logger.error(f"Error in help command: {e}")
@@ -445,8 +456,9 @@ class Commands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in inventory command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
-            
+
     @commands.command(name='heist', aliases=['braquage'])
+    @check_daily_limit('heist')
     async def heist_command(self, ctx):
         """Start a heist"""
         try:
@@ -469,6 +481,7 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='deal')
+    @check_daily_limit('deal')
     async def drug_deal_command(self, ctx, amount: int = None):
         """Start a drug deal"""
         try:
@@ -484,6 +497,7 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='escape', aliases=['fuite'])
+    @check_daily_limit('escape')
     async def escape_command(self, ctx):
         """Try to escape from police"""
         try:
@@ -495,6 +509,7 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='combat', aliases=['fight', 'duel'])
+    @check_daily_limit('combat')
     async def combat_command(self, ctx, target: discord.Member = None, bet: int = None):
         """Start a combat with another member"""
         try:
@@ -633,4 +648,307 @@ class Commands(commands.Cog):
 
         except Exception as e:
             logger.error(f"Error in vote_trial command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='roulette')
+    @check_daily_limit('roulette')
+    async def roulette_command(self, ctx, bet: int = None):
+        """Play Russian roulette with points"""
+        try:
+            if bet is None:
+                await ctx.send(f"❌ Tu dois parier! Exemple: `!roulette {ROULETTE_MIN_BET}`")
+                return
+
+            if bet < ROULETTE_MIN_BET or bet > ROULETTE_MAX_BET:
+                await ctx.send(f"❌ Le pari doit être entre {ROULETTE_MIN_BET} et {ROULETTE_MAX_BET} points!")
+                return
+
+            # Check cooldown
+            last_play = self.points.db.get_roulette_cooldown(str(ctx.author.id))
+            now = datetime.now().timestamp()
+            if now - last_play < ROULETTE_COOLDOWN:
+                remaining = int(ROULETTE_COOLDOWN - (now - last_play))
+                await ctx.send(f"⏳ Tu dois attendre {remaining} secondes avant de rejouer!")
+                return
+
+            points = self.points.db.get_user_points(str(ctx.author.id))
+            if points < bet:
+                await ctx.send("❌ Tu n'as pas assez de points!")
+                return
+
+            # 1/6 chance to survive
+            if random.randint(1, 6) == 6:
+                reward = bet * ROULETTE_MULTIPLIER
+                self.points.db.add_points(str(ctx.author.id), reward - bet)
+                self.points.db.update_losing_streak(str(ctx.author.id), 'roulette', True)
+                await ctx.send(f"🎯 *click* ... Tu as survécu! Tu gagnes {reward} points!")
+            else:
+                # Apply loss penalty
+                penalty = bet * (1 + ROULETTE_LOSS_PENALTY)
+                self.points.db.add_points(str(ctx.author.id), -int(penalty))
+                self.points.db.update_losing_streak(str(ctx.author.id), 'roulette', False)
+                await ctx.send(f"💥 *BANG* ... Tu es mort! Tu perds {int(penalty)} points!")
+
+            self.points.db.set_roulette_cooldown(str(ctx.author.id))
+
+        except Exception as e:
+            logger.error(f"Error in roulette command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='race', aliases=['course'])
+    @check_daily_limit('race')
+    async def race_command(self, ctx, horse: str = None, bet: int = None):
+        """Bet on a horse race"""
+        try:
+            if horse is None or bet is None:
+                horses = "\n".join([f"{k}: {v['name']} (x{v['odds']})" for k, v in RACE_HORSES.items()])
+                await ctx.send(f"🐎 Chevaux disponibles:\n{horses}\nUtilise `!race <numéro> <mise>`")
+                return
+
+            if horse not in RACE_HORSES:
+                await ctx.send("❌ Ce cheval n'existe pas!")
+                return
+
+            if bet < RACE_MIN_BET or bet > RACE_MAX_BET:
+                await ctx.send(f"❌ La mise doit être entre {RACE_MIN_BET} et {RACE_MAX_BET} points!")
+                return
+
+            points = self.points.db.get_user_points(str(ctx.author.id))
+            if points < bet:
+                await ctx.send("❌ Tu n'as pas assez de points!")
+                return
+
+            # Place bet
+            self.points.db.add_points(str(ctx.author.id), -bet)
+
+            # Start race
+            message = await ctx.send("🏁 La course commence!")
+
+            # Simulate race
+            positions = {h: 0 for h in RACE_HORSES.keys()}
+            for _ in range(3):  # 3 updates
+                await asyncio.sleep(2)
+                for h in positions:
+                    positions[h] += random.randint(1, 4)
+
+                race_status = "\n".join([
+                    f"{RACE_HORSES[h]['name']}: {'=' * min(positions[h], 10)}{'>' if positions[h] < 10 else '🏁'}"                    for h in positions
+                ])
+                await message.edit(content=f"🏁 Course en cours!\n{race_status}")
+
+            # Determine winner and check for injury
+            winner = max(positions.items(), key=lambda x: x[1])[0]
+            selected_horse = RACE_HORSES[horse]
+            injury = random.random() < selected_horse['risk']
+
+            if horse == winner and not injury:
+                winnings = int(bet * selected_horse['odds'])
+                self.points.db.add_points(str(ctx.author.id), winnings)
+                self.points.db.update_losing_streak(str(ctx.author.id), 'race', True)
+                await ctx.send(f"🏆 {selected_horse['name']} gagne! Tu remportes {winnings} points!")
+            else:
+                loss_message = ""
+                if injury:
+                    extra_loss = int(bet * (RACE_INJURY_MULTIPLIER - 1))
+                    self.points.db.add_points(str(ctx.author.id), -extra_loss)
+                    loss_message = f"\n🤕 Ton cheval s'est blessé! Tu perds {extra_loss} points supplémentaires!"
+
+                self.points.db.update_losing_streak(str(ctx.author.id), 'race', False)
+                await ctx.send(f"😢 {RACE_HORSES[winner]['name']} gagne! Tu perds ton pari!{loss_message}")
+
+        except Exception as e:
+            logger.error(f"Error in race command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Setup prison role and start lottery draw task when bot is ready"""
+        for guild in self.bot.guilds:
+            await self.points.setup_prison_role(guild)
+
+    @commands.command(name='lottery', aliases=['loto'])
+    async def lottery_command(self, ctx, *numbers: int):
+        """Buy a lottery ticket"""
+        try:
+            if not numbers or len(numbers) != 3:
+                await ctx.send("❌ Tu dois choisir 3 numéros! Exemple: `!lottery 7 13 24`")
+                return
+
+            if not all(1 <= n <= 30 for n in numbers):
+                await ctx.send("❌ Les numéros doivent être entre 1 et 30!")
+                return
+
+            points = self.points.db.get_user_points(str(ctx.author.id))
+            if points < LOTTERY_TICKET_PRICE:
+                await ctx.send(f"❌ Tu n'as pas assez de points! Un ticket coûte {LOTTERY_TICKET_PRICE} points.")
+                return
+
+            if self.points.db.buy_lottery_ticket(str(ctx.author.id), list(numbers)):
+                self.points.db.add_points(str(ctx.author.id), -LOTTERY_TICKET_PRICE)
+                await ctx.send(f"🎫 Ticket acheté avec les numéros {', '.join(map(str, numbers))}!")
+            else:
+                await ctx.send(f"❌ Tu as déjà {LOTTERY_MAX_TICKETS} tickets!")
+
+        except Exception as e:
+            logger.error(f"Error in lottery command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @tasks.loop(seconds=LOTTERY_DRAW_INTERVAL)
+    async def lottery_task(self):
+        """Daily lottery draw"""
+        try:
+            # Get all tickets
+            all_tickets = self.points.db.data['lottery_tickets']
+            if not all_tickets:
+                return
+
+            # Draw winning numbers
+            winning_numbers = sorted(random.sample(range(1, 31), 3))
+
+            # Find winners
+            winners = []
+            for user_id, tickets in all_tickets.items():
+                for ticket in tickets:
+                    matches = len(set(ticket) & set(winning_numbers))
+                    if matches >= 2:  # Need at least 2 matching numbers
+                        winners.append((user_id, matches))
+
+            # Calculate prizes
+            jackpot = self.points.db.data['lottery_jackpot']
+            base_prize = jackpot // (len(winners) or 1)  # Avoid division by zero
+
+            # Announce results
+            announcement = f"🎰 **Tirage du Loto !**\nNuméros gagnants : {', '.join(map(str, winning_numbers))}\n"
+
+            if winners:
+                for user_id, matches in winners:
+                    try:
+                        member = await self.bot.guilds[0].fetch_member(int(user_id))
+                        prize = base_prize * (2 if matches == 2 else 5 if matches == 3 else 1)
+                        self.points.db.add_points(user_id, prize)
+                        announcement += f"\n{member.name} a trouvé {matches} numéros ! Gain : {prize} points !"
+                    except:
+                        continue
+            else:
+                announcement += "\nAucun gagnant ! Le jackpot augmente ! 💰"
+
+            # Send announcement in all guilds
+            for guild in self.bot.guilds:
+                try:
+                    # Try to find a general chat channel
+                    channel = discord.utils.get(guild.text_channels, name='général') or \
+                             discord.utils.get(guild.text_channels, name='general') or \
+                             guild.text_channels[0]
+                    await channel.send(announcement)
+                except:
+                    continue
+
+            # Reset tickets and update jackpot
+            self.points.db.clear_lottery_tickets()
+
+        except Exception as e:
+            logger.error(f"Error in lottery draw: {e}", exc_info=True)
+    @commands.command(name='dice', aliases=['dés', 'des'])
+    @check_daily_limit('dice')
+    async def dice_command(self, ctx, target: discord.Member = None, bet: int = None):
+        """Start a dice duel with another member"""
+        try:
+            if not target or bet is None:
+                await ctx.send("❌ Usage: !dice @user <mise>")
+                return
+
+            if target.id == ctx.author.id:
+                await ctx.send("❌ Tu ne peux pas jouer contre toi-même!")
+                return
+
+            if bet < DICE_MIN_BET or bet > DICE_MAX_BET:
+                await ctx.send(f"❌ La mise doit être entre {DICE_MIN_BET} et {DICE_MAX_BET} points!")
+                return
+
+            # Check cooldown
+            last_play = self.points.db.get_dice_cooldown(str(ctx.author.id))
+            now = datetime.now().timestamp()
+            if now - last_play < DICE_COOLDOWN:
+                remaining = int(DICE_COOLDOWN - (now - last_play))
+                await ctx.send(f"⏳ Tu dois attendre {remaining} secondes avant de rejouer!")
+                return
+
+            # Check if target has enough points
+            challenger_points = self.points.db.get_user_points(str(ctx.author.id))
+            target_points = self.points.db.get_user_points(str(target.id))
+
+            if challenger_points < bet:
+                await ctx.send("❌ Tu n'as pas assez de points!")
+                return
+            if target_points < bet:
+                await ctx.send(f"❌ {target.name} n'a pas assez de points!")
+                return
+
+            # Roll dice
+            challenger_dice = [random.randint(1, 6), random.randint(1, 6)]
+            target_dice = [random.randint(1, 6), random.randint(1, 6)]
+
+            challenger_total = sum(challenger_dice)
+            target_total = sum(target_dice)
+
+            # Check for matching dice bonus
+            challenger_bonus = challenger_dice[0] == challenger_dice[1]
+            target_bonus = target_dice[0] == target_dice[1]
+
+            # Calculate final scores with bonuses
+            if challenger_bonus:
+                challenger_total = int(challenger_total * DICE_BONUS_MULTIPLIER)
+            if target_bonus:
+                target_total = int(target_total * DICE_BONUS_MULTIPLIER)
+
+            # Create message
+            message = f"🎲 **Duel de dés**\n\n"
+            message += f"{ctx.author.name}: [{challenger_dice[0]}] [{challenger_dice[1]}] = {challenger_total}"
+            if challenger_bonus:
+                message += " (BONUS x1.5!)"
+            message += f"\n{target.name}: [{target_dice[0]}] [{target_dice[1]}] = {target_total}"
+            if target_bonus:
+                message += " (BONUS x1.5!)"
+
+            # Determine winner and apply streak penalties
+            if challenger_total > target_total:
+                # Calculate penalty for target based on losing streak
+                penalty_multiplier = self.points.db.calculate_penalty_multiplier(str(target.id), 'dice')
+                actual_loss = int(bet * penalty_multiplier)
+
+                self.points.db.add_points(str(ctx.author.id), bet)
+                self.points.db.add_points(str(target.id), -actual_loss)
+
+                self.points.db.update_losing_streak(str(ctx.author.id), 'dice', True)
+                self.points.db.update_losing_streak(str(target.id), 'dice', False)
+
+                message += f"\n\n🏆 {ctx.author.name} gagne {bet} points!"
+                if penalty_multiplier > 1:
+                    message += f"\n😰 Malus de défaite pour {target.name}: -{actual_loss} points!"
+            elif target_total > challenger_total:
+                # Calculate penalty for challenger based on losing streak
+                penalty_multiplier = self.points.db.calculate_penalty_multiplier(str(ctx.author.id), 'dice')
+                actual_loss = int(bet * penalty_multiplier)
+
+                self.points.db.add_points(str(target.id), bet)
+                self.points.db.add_points(str(ctx.author.id), -actual_loss)
+
+                self.points.db.update_losing_streak(str(target.id), 'dice', True)
+                self.points.db.update_losing_streak(str(ctx.author.id), 'dice', False)
+
+                message += f"\n\n🏆 {target.name} gagne {bet} points!"
+                if penalty_multiplier > 1:
+                    message += f"\n😰 Malus de défaite pour {ctx.author.name}: -{actual_loss} points!"
+            else:
+                # Tie - no points exchanged
+                message += "\n\n🤝 Égalité! Personne ne gagne de points."
+                # Reset both losing streaks on tie
+                self.points.db.update_losing_streak(str(ctx.author.id), 'dice', True)
+                self.points.db.update_losing_streak(str(target.id), 'dice', True)
+
+            await ctx.send(message)
+            self.points.db.set_dice_cooldown(str(ctx.author.id))
+
+        except Exception as e:
+            logger.error(f"Error in dice command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")

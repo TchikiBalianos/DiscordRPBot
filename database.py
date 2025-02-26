@@ -21,9 +21,9 @@ class Database:
         self.data: Dict[str, Dict[str, Any]] = {
             'users': {},
             'rob_cooldowns': {},
-            'prison_times': {},  # New: Track prison sentences
-            'last_robbers': {},  # New: Track who robbed whom
-            'last_work': {},     # New: Track daily work
+            'prison_times': {},
+            'last_robbers': {},
+            'last_work': {},
             'voice_sessions': {},
             'twitter_links': {},
             'twitter_stats': {},
@@ -31,8 +31,14 @@ class Database:
             'prison_activities': {},
             'trials': {},
             'trial_cooldowns': {},
-            'escape_cooldowns': {}, # Added for escape cooldown
-            'combats': {} # Added for combat system
+            'escape_cooldowns': {},
+            'combats': {},
+            'daily_commands': {},    # Track daily command usage
+            'lottery_tickets': {},    # Track lottery tickets
+            'lottery_jackpot': 0,    # Current lottery jackpot
+            'race_bets': {},         # Track race bets
+            'roulette_cooldowns': {}, # Track roulette cooldowns
+            'losing_streaks': {} #Track losing streaks for games
         }
         logger.info("Empty data structure initialized")
 
@@ -97,7 +103,7 @@ class Database:
                 raise ValueError("Data must be a dictionary")
 
             # Ensure all required sections exist
-            for key in ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats']: # Added new keys
+            for key in ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats', 'daily_commands', 'lottery_tickets', 'lottery_jackpot', 'race_bets', 'roulette_cooldowns', 'losing_streaks']:
                 if key not in self.data:
                     logger.warning(f"Missing key {key} in data, initializing empty")
                     self.data[key] = {}
@@ -498,3 +504,128 @@ class Database:
         if 'combats' in self.data:
             self.data['combats'].pop(combat_id, None)
             self.save_data()
+
+    def get_daily_usage(self, user_id: str, command: str) -> int:
+        """Get number of times a command was used today"""
+        user_id = str(user_id)
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        if user_id not in self.data['daily_commands']:
+            self.data['daily_commands'][user_id] = {}
+
+        if today not in self.data['daily_commands'][user_id]:
+            self.data['daily_commands'][user_id][today] = {}
+
+        return self.data['daily_commands'][user_id][today].get(command, 0)
+
+    def increment_daily_usage(self, user_id: str, command: str) -> None:
+        """Increment command usage counter"""
+        user_id = str(user_id)
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        if user_id not in self.data['daily_commands']:
+            self.data['daily_commands'][user_id] = {}
+
+        if today not in self.data['daily_commands'][user_id]:
+            self.data['daily_commands'][user_id][today] = {}
+
+        current = self.data['daily_commands'][user_id][today].get(command, 0)
+        self.data['daily_commands'][user_id][today][command] = current + 1
+        self.save_data()
+
+    LOTTERY_MAX_TICKETS = 5 #Example value, adjust as needed
+    LOTTERY_TICKET_PRICE = 100 #Example value, adjust as needed
+    LOTTERY_JACKPOT_BASE = 1000 #Example value, adjust as needed
+
+    def buy_lottery_ticket(self, user_id: str, numbers: list) -> bool:
+        """Buy a lottery ticket"""
+        user_id = str(user_id)
+        if user_id not in self.data['lottery_tickets']:
+            self.data['lottery_tickets'][user_id] = []
+
+        # Check if user hasn't exceeded max tickets
+        if len(self.data['lottery_tickets'][user_id]) >= self.LOTTERY_MAX_TICKETS:
+            return False
+
+        self.data['lottery_tickets'][user_id].append(numbers)
+        self.data['lottery_jackpot'] += self.LOTTERY_TICKET_PRICE // 2  # Half of ticket price goes to jackpot
+        self.save_data()
+        return True
+
+    def get_lottery_tickets(self, user_id: str) -> list:
+        """Get user's lottery tickets"""
+        return self.data['lottery_tickets'].get(str(user_id), [])
+
+    def clear_lottery_tickets(self) -> None:
+        """Clear all lottery tickets after draw"""
+        self.data['lottery_tickets'] = {}
+        self.data['lottery_jackpot'] = self.LOTTERY_JACKPOT_BASE
+        self.save_data()
+
+    def place_race_bet(self, user_id: str, horse: str, amount: int) -> None:
+        """Place a bet on a horse"""
+        user_id = str(user_id)
+        if 'race_bets' not in self.data:
+            self.data['race_bets'] = {}
+
+        self.data['race_bets'][user_id] = {
+            'horse': horse,
+            'amount': amount,
+            'time': datetime.now().timestamp()
+        }
+        self.save_data()
+
+    def get_race_bet(self, user_id: str) -> dict:
+        """Get user's race bet"""
+        return self.data.get('race_bets', {}).get(str(user_id))
+
+    def clear_race_bets(self) -> None:
+        """Clear all race bets"""
+        self.data['race_bets'] = {}
+        self.save_data()
+
+    def set_roulette_cooldown(self, user_id: str) -> None:
+        """Set roulette cooldown"""
+        self.data['roulette_cooldowns'][str(user_id)] = datetime.now().timestamp()
+        self.save_data()
+
+    def get_roulette_cooldown(self, user_id: str) -> float:
+        """Get roulette cooldown"""
+        return self.data['roulette_cooldowns'].get(str(user_id), 0)
+
+    def get_losing_streak(self, user_id: str, game_type: str) -> int:
+        """Get current losing streak for a specific game"""
+        if 'losing_streaks' not in self.data:
+            self.data['losing_streaks'] = {}
+
+        if user_id not in self.data['losing_streaks']:
+            self.data['losing_streaks'][user_id] = {}
+
+        return self.data['losing_streaks'][user_id].get(game_type, 0)
+
+    def update_losing_streak(self, user_id: str, game_type: str, won: bool) -> None:
+        """Update losing streak counter"""
+        if 'losing_streaks' not in self.data:
+            self.data['losing_streaks'] = {}
+
+        if user_id not in self.data['losing_streaks']:
+            self.data['losing_streaks'][user_id] = {}
+
+        if won:
+            self.data['losing_streaks'][user_id][game_type] = 0
+        else:
+            current = self.data['losing_streaks'][user_id].get(game_type, 0)
+            self.data['losing_streaks'][user_id][game_type] = current + 1
+        self.save_data()
+
+    DICE_LOSING_STREAK_PENALTY = 0.2 #Example value, adjust as needed
+    BLACKJACK_STREAK_PENALTY = True #Example value, adjust as needed
+
+    def calculate_penalty_multiplier(self, user_id: str, game_type: str) -> float:
+        """Calculate penalty multiplier based on losing streak"""
+        streak = self.get_losing_streak(user_id, game_type)
+        if game_type == 'dice' and streak >= 3:
+            return 1 + self.DICE_LOSING_STREAK_PENALTY
+        elif game_type == 'blackjack' and self.BLACKJACK_STREAK_PENALTY:
+            return 1 + (0.1 * min(streak, 5))  # Max 50% additional loss after 5 losses
+        return 1.0

@@ -1,5 +1,74 @@
 import os
 
+# Daily Command Limits Configuration
+DAILY_LIMITS = {
+    "rob": 3,        # 3 vols par jour
+    "deal": 5,       # 5 deals par jour
+    "heist": 2,      # 2 braquages par jour
+    "combat": 5,     # 5 combats par jour
+    "escape": 2,     # 2 tentatives d'évasion par jour
+    "revenge": 1,    # 1 vengeance par jour
+    "work": 1,       # 1 travail par jour
+    "roulette": 10,  # 10 parties de roulette par jour
+    "race": 15,      # 15 courses par jour
+    "blackjack": 20, # 20 parties de blackjack par jour
+    "treasure": 5,   # 5 chasses au trésor par jour
+    "dice": 10       # 10 duels de dés par jour
+}
+
+# Russian Roulette Configuration
+ROULETTE_MIN_BET = 100
+ROULETTE_MAX_BET = 1000
+ROULETTE_MULTIPLIER = 6  # 6x la mise si survie
+ROULETTE_COOLDOWN = 14400  # 4 heures (augmenté de 2h à 4h)
+ROULETTE_LOSS_PENALTY = 0.8  # Perd 80% de points supplémentaires en cas de mort (augmenté de 50% à 80%)
+
+# Lottery Configuration
+LOTTERY_TICKET_PRICE = 100
+LOTTERY_DRAW_INTERVAL = 86400  # Tirage quotidien
+LOTTERY_JACKPOT_BASE = 5000   # Cagnotte de base
+LOTTERY_MAX_TICKETS = 5       # Maximum 5 tickets par personne
+
+# Racing Configuration
+RACE_MIN_BET = 50
+RACE_MAX_BET = 500
+RACE_COOLDOWN = 7200  # 2 heures (augmenté de 1h à 2h)
+RACE_HORSES = {
+    "1": {"name": "🐎 Flash", "odds": 2.0, "risk": 0.2},  # 20% de chance de se blesser (augmenté de 10% à 20%)
+    "2": {"name": "🐎 Thunder", "odds": 3.0, "risk": 0.25},
+    "3": {"name": "🐎 Shadow", "odds": 4.0, "risk": 0.3},
+    "4": {"name": "🐎 Lucky", "odds": 5.0, "risk": 0.35}
+}
+RACE_INJURY_MULTIPLIER = 2.0  # Perte x2 si le cheval se blesse (augmenté de 1.5 à 2.0)
+
+# Blackjack Configuration
+BLACKJACK_MIN_BET = 100
+BLACKJACK_MAX_BET = 2000
+BLACKJACK_COOLDOWN = 7200  # 2 heures (augmenté de 30min à 2h)
+BLACKJACK_STREAK_PENALTY = True  # Active les malus progressifs sur les pertes consécutives
+BLACKJACK_MAX_STREAK_PENALTY = 0.5  # Jusqu'à 50% de perte supplémentaire après une série de défaites
+
+# Treasure Hunt Configuration 
+TREASURE_COOLDOWN = 10800  # 3 heures (augmenté de 1h à 3h)
+TREASURE_MIN_REWARD = 200
+TREASURE_MAX_REWARD = 1000
+TREASURE_HINTS = {
+    "prison": "🏢 Dans les cellules",
+    "garden": "🌳 Dans le jardin",
+    "kitchen": "🍳 Dans la cuisine",
+    "library": "📚 Dans la bibliothèque",
+    "gym": "🏋️ Dans la salle de sport"
+}
+TREASURE_TRAP_CHANCE = 0.4  # 40% de chance de tomber dans un piège (augmenté de 30% à 40%)
+TREASURE_TRAP_LOSS = 0.7   # Perd 70% de la récompense potentielle si piège (augmenté de 50% à 70%)
+
+# Dice Duel Configuration
+DICE_MIN_BET = 50
+DICE_MAX_BET = 500
+DICE_COOLDOWN = 1800  # 30 minutes (augmenté de 5min à 30min)
+DICE_BONUS_MULTIPLIER = 1.5  # 50% bonus pour dés identiques
+DICE_LOSING_STREAK_PENALTY = 0.3  # Perd 30% supplémentaire après 3 pertes consécutives (augmenté de 20% à 30%)
+
 # Discord Configuration
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')  # Remove default value for security
 if not DISCORD_TOKEN:
