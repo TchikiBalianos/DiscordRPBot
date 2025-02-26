@@ -4,52 +4,79 @@ import logging
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
 import time
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger('TwitterTest')
 
-def test_twitter_connection():
+def test_oauth1_tokens():
+    """Test OAuth 1.0a tokens individually"""
+    logger.info("\nTesting OAuth 1.0a tokens...")
+
+    # Log tokens (first 4 chars only)
+    logger.info(f"API Key starts with: {TWITTER_API_KEY[:4]}...")
+    logger.info(f"Access Token starts with: {TWITTER_ACCESS_TOKEN[:4]}...")
+
     try:
-        logger.info("Testing Twitter API connection...")
-        logger.info(f"Bearer Token present: {bool(TWITTER_BEARER_TOKEN)}")
-        logger.info(f"API Key present: {bool(TWITTER_API_KEY)}")
-        logger.info(f"API Secret present: {bool(TWITTER_API_SECRET)}")
-        logger.info(f"Access Token present: {bool(TWITTER_ACCESS_TOKEN)}")
-        logger.info(f"Access Secret present: {bool(TWITTER_ACCESS_SECRET)}")
+        auth = tweepy.OAuthHandler(TWITTER_API_KEY, TWITTER_API_SECRET)
+        auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET)
+        api = tweepy.API(auth)
 
-        # Initialize with both OAuth 2.0 Bearer Token and OAuth 1.0a credentials
-        client = tweepy.Client(
-            bearer_token=TWITTER_BEARER_TOKEN,
-            consumer_key=TWITTER_API_KEY,
-            consumer_secret=TWITTER_API_SECRET,
-            access_token=TWITTER_ACCESS_TOKEN,
-            access_token_secret=TWITTER_ACCESS_SECRET,
-            wait_on_rate_limit=True
-        )
+        me = api.verify_credentials()
+        logger.info("✅ OAuth 1.0a Verification successful")
+        logger.info(f"Authenticated as: @{me.screen_name}")
+        return True
+    except Unauthorized as e:
+        logger.error("❌ OAuth 1.0a Verification failed")
+        logger.error(f"Error: {str(e)}")
+        logger.error("Solution: Please verify that you have:")
+        logger.error("1. Generated new OAuth 1.0a tokens (not copying old ones)")
+        logger.error("2. Correctly copied both Consumer Keys (API Key + Secret)")
+        logger.error("3. Correctly copied both Access Tokens")
+        logger.error("4. Enabled Read+Write permissions in app settings")
+        return False
 
-        try:
-            # Test user lookup with specific account
-            test_user = "Faroyevana"
-            logger.info(f"Testing user lookup with @{test_user}")
-            response = client.get_user(username=test_user)
+def test_oauth2_bearer():
+    """Test OAuth 2.0 Bearer Token"""
+    logger.info("\nTesting OAuth 2.0 Bearer Token...")
 
-            if response and response.data:
-                logger.info(f"Successfully retrieved user info for @{test_user}")
-                return True
-            else:
-                logger.error("Could not get user information")
-                return False
+    # Log token (first 4 chars only)
+    logger.info(f"Bearer Token starts with: {TWITTER_BEARER_TOKEN[:4]}...")
 
-        except Unauthorized as e:
-            logger.error(f"Authentication failed: {e}")
-            logger.error("Please verify your Twitter API credentials and permissions")
+    try:
+        client = tweepy.Client(bearer_token=TWITTER_BEARER_TOKEN)
+        me = client.get_me()
+
+        if me and me.data:
+            logger.info("✅ Bearer Token Verification successful")
+            logger.info(f"Account ID: {me.data.id}")
+            return True
+        else:
+            logger.error("❌ Bearer Token verification failed: No data returned")
             return False
-        except Exception as e:
-            logger.error(f"Error testing connection: {e}")
-            return False
-
-    except Exception as e:
-        logger.error(f"Unexpected error in test_twitter_connection: {e}")
+    except Unauthorized as e:
+        logger.error("❌ Bearer Token verification failed")
+        logger.error(f"Error: {str(e)}")
+        logger.error("Solution: Please verify that you have:")
+        logger.error("1. Generated a new Bearer Token (not copying old one)")
+        logger.error("2. Correctly copied the entire Bearer Token")
+        logger.error("3. Bearer Token starts with 'AAAA...'")
         return False
 
 if __name__ == "__main__":
-    test_twitter_connection()
+    logger.info("Starting detailed Twitter API verification...")
+
+    # Test each authentication method separately
+    oauth1_success = test_oauth1_tokens()
+    oauth2_success = test_oauth2_bearer()
+
+    # Summary
+    logger.info("\nAuthentication Test Summary:")
+    logger.info(f"OAuth 1.0a (API Key + Access Token): {'✅ Working' if oauth1_success else '❌ Failed'}")
+    logger.info(f"OAuth 2.0 (Bearer Token): {'✅ Working' if oauth2_success else '❌ Failed'}")
+
+    if not (oauth1_success or oauth2_success):
+        logger.error("\n❌ All authentication methods failed.")
+        logger.error("Please verify all tokens have been correctly regenerated and copied.")
+        exit(1)
