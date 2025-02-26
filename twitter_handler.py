@@ -6,16 +6,10 @@ logger = logging.getLogger('EngagementBot')
 
 class TwitterHandler:
     def __init__(self):
-        try:
-            logger.info("Initializing Twitter API...")
-            self.client = tweepy.Client(
-                bearer_token=TWITTER_BEARER_TOKEN,
-                wait_on_rate_limit=True
-            )
-            logger.info("Twitter API initialized")
-        except Exception as e:
-            logger.error(f"Error initializing Twitter API: {e}")
-            raise
+        self.client = tweepy.Client(
+            bearer_token=TWITTER_BEARER_TOKEN,
+            wait_on_rate_limit=True
+        )
 
     async def verify_account(self, username: str):
         """Verify if a Twitter account exists"""
@@ -32,7 +26,7 @@ class TwitterHandler:
         try:
             tweets = self.client.get_users_tweets(
                 id=twitter_id,
-                max_results=5,
+                max_results=3,
                 tweet_fields=['public_metrics']
             )
 
