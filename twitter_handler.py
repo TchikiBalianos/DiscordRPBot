@@ -7,6 +7,13 @@ logger = logging.getLogger('EngagementBot')
 class TwitterHandler:
     def __init__(self):
         try:
+            logger.info("Initializing Twitter API...")
+            # Log keys presence (not their values)
+            logger.info(f"Twitter API Key present: {bool(TWITTER_API_KEY)}")
+            logger.info(f"Twitter API Secret present: {bool(TWITTER_API_SECRET)}")
+            logger.info(f"Twitter Access Token present: {bool(TWITTER_ACCESS_TOKEN)}")
+            logger.info(f"Twitter Access Secret present: {bool(TWITTER_ACCESS_SECRET)}")
+
             self.client = tweepy.Client(
                 consumer_key=TWITTER_API_KEY,
                 consumer_secret=TWITTER_API_SECRET,
@@ -15,6 +22,10 @@ class TwitterHandler:
             )
             self._test_connection()
             logger.info("Twitter API connection successful")
+        except tweepy.errors.Unauthorized as e:
+            logger.error(f"Twitter API authentication failed: {e}")
+            logger.exception("Authentication error traceback:")
+            self.client = None
         except Exception as e:
             logger.error(f"Error initializing Twitter API: {e}")
             logger.exception("Full traceback:")
@@ -24,16 +35,20 @@ class TwitterHandler:
         try:
             # Test with a simple API call
             self.client.get_me()
-            logger.info("Twitter API connection successful")
+            logger.info("Twitter API connection test successful")
+        except tweepy.errors.Unauthorized as e:
+            logger.error(f"Twitter API authentication test failed: {e}")
+            logger.exception("Authentication test error traceback:")
+            raise
         except Exception as e:
-            logger.error(f"Twitter API connection failed: {e}")
+            logger.error(f"Twitter API connection test failed: {e}")
             logger.exception("Full traceback:")
             raise
 
     async def get_user_activity(self, username):
         if not self.client:
-            logger.error("Twitter API not initialized")
-            return None
+            logger.error("Twitter API not initialized - check your API credentials")
+            raise ValueError("Configuration Twitter invalide. Veuillez contacter l'administrateur.")
 
         try:
             logger.info(f"Fetching Twitter activity for user {username}")
