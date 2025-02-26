@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from datetime import datetime
 import logging
 import stat
@@ -20,9 +21,18 @@ class Database:
         self.data: Dict[str, Dict[str, Any]] = {
             'users': {},
             'rob_cooldowns': {},
+            'prison_times': {},  # New: Track prison sentences
+            'last_robbers': {},  # New: Track who robbed whom
+            'last_work': {},     # New: Track daily work
             'voice_sessions': {},
             'twitter_links': {},
-            'twitter_stats': {}
+            'twitter_stats': {},
+            'prison_roles': {},
+            'prison_activities': {},
+            'trials': {},
+            'trial_cooldowns': {},
+            'escape_cooldowns': {}, # Added for escape cooldown
+            'combats': {} # Added for combat system
         }
         logger.info("Empty data structure initialized")
 
@@ -87,7 +97,7 @@ class Database:
                 raise ValueError("Data must be a dictionary")
 
             # Ensure all required sections exist
-            for key in ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats']:
+            for key in ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats']: # Added new keys
                 if key not in self.data:
                     logger.warning(f"Missing key {key} in data, initializing empty")
                     self.data[key] = {}
@@ -199,7 +209,46 @@ class Database:
     def get_rob_cooldown(self, user_id):
         return self.data['rob_cooldowns'].get(str(user_id), 0)
 
+    # New methods for prison system
+    def set_prison_time(self, user_id, release_time):
+        self.data['prison_times'][str(user_id)] = release_time
+        self.save_data()
+
+    def get_prison_time(self, user_id):
+        return self.data['prison_times'].get(str(user_id), 0)
+
+    # New methods for revenge system
+    def set_last_robber(self, victim_id, robber_id):
+        self.data['last_robbers'][str(victim_id)] = str(robber_id)
+        self.save_data()
+
+    def get_last_robber(self, victim_id):
+        return self.data['last_robbers'].get(str(victim_id))
+
+    def clear_last_robber(self, victim_id):
+        self.data['last_robbers'].pop(str(victim_id), None)
+        self.save_data()
+
+    # New methods for daily work
+    def set_last_work(self, user_id, timestamp):
+        self.data['last_work'][str(user_id)] = timestamp
+        self.save_data()
+
+    def get_last_work(self, user_id):
+        return self.data['last_work'].get(str(user_id), 0)
+
     def get_leaderboard(self):
+        """Get monthly leaderboard with reset check"""
+        current_month = datetime.now().month
+        current_year = datetime.now().year
+
+        # Check if we need to reset the leaderboard
+        if not hasattr(self, '_last_reset_month') or self._last_reset_month != current_month:
+            logger.info("Monthly leaderboard reset")
+            self.data['users'] = {user_id: {'points': 0} for user_id in self.data['users']}
+            self._last_reset_month = current_month
+            self.save_data()
+
         sorted_users = sorted(
             self.data['users'].items(),
             key=lambda x: x[1]['points'],
@@ -287,3 +336,165 @@ class Database:
     def get_all_twitter_users(self):
         """Récupère tous les utilisateurs ayant lié leur compte Twitter"""
         return self.data['twitter_links'].items()
+
+    def add_item_to_inventory(self, user_id: str, item_id: str):
+        """Add an item to user's inventory"""
+        user_id = str(user_id)
+        if 'inventories' not in self.data:
+            self.data['inventories'] = {}
+        if user_id not in self.data['inventories']:
+            self.data['inventories'][user_id] = []
+        self.data['inventories'][user_id].append(item_id)
+        self.save_data()
+
+    def get_inventory(self, user_id: str):
+        """Get user's inventory"""
+        return self.data.get('inventories', {}).get(str(user_id), [])
+
+    def get_active_heist(self):
+        """Get active heist if any"""
+        return self.data.get('active_heist')
+
+    def create_heist(self, leader_id: str):
+        """Create a new heist"""
+        self.data['active_heist'] = {
+            'leader': str(leader_id),
+            'participants': [str(leader_id)],
+            'start_time': datetime.now().timestamp()
+        }
+        self.save_data()
+
+    def add_heist_participant(self, user_id: str):
+        """Add participant to active heist"""
+        if 'active_heist' in self.data:
+            self.data['active_heist']['participants'].append(str(user_id))
+            self.save_data()
+
+    def clear_active_heist(self):
+        """Clear active heist"""
+        if 'active_heist' in self.data:
+            del self.data['active_heist']
+            self.save_data()
+
+    def set_drug_deal_cooldown(self, user_id: str):
+        """Set drug deal cooldown"""
+        if 'drug_deal_cooldowns' not in self.data:
+            self.data['drug_deal_cooldowns'] = {}
+        self.data['drug_deal_cooldowns'][str(user_id)] = datetime.now().timestamp()
+        self.save_data()
+
+    def get_drug_deal_cooldown(self, user_id: str):
+        """Get drug deal cooldown"""
+        return self.data.get('drug_deal_cooldowns', {}).get(str(user_id), 0)
+
+    def set_chase_cooldown(self, user_id: str):
+        """Set police chase cooldown"""
+        if 'chase_cooldowns' not in self.data:
+            self.data['chase_cooldowns'] = {}
+        self.data['chase_cooldowns'][str(user_id)] = datetime.now().timestamp()
+        self.save_data()
+
+    def get_chase_cooldown(self, user_id: str):
+        """Get police chase cooldown"""
+        return self.data.get('chase_cooldowns', {}).get(str(user_id), 0)
+
+    def set_prison_role(self, user_id: str, role: str):
+        """Set prison role for user"""
+        if 'prison_roles' not in self.data:
+            self.data['prison_roles'] = {}
+        self.data['prison_roles'][str(user_id)] = role
+        self.save_data()
+
+    def get_prison_role(self, user_id: str):
+        """Get user's prison role"""
+        return self.data.get('prison_roles', {}).get(str(user_id))
+
+    def set_last_prison_activity(self, user_id: str, timestamp: float):
+        """Set timestamp of last prison activity"""
+        if 'prison_activities' not in self.data:
+            self.data['prison_activities'] = {}
+        self.data['prison_activities'][str(user_id)] = timestamp
+        self.save_data()
+
+    def get_last_prison_activity(self, user_id: str):
+        """Get timestamp of last prison activity"""
+        return self.data.get('prison_activities', {}).get(str(user_id), 0)
+
+    def create_trial(self, user_id: str, plea: str, end_time: float):
+        """Create a new trial"""
+        if 'trials' not in self.data:
+            self.data['trials'] = {}
+        self.data['trials'][str(user_id)] = {
+            'plea': plea,
+            'end_time': end_time,
+            'votes': {}
+        }
+        self.save_data()
+
+    def get_active_trial(self, user_id: str):
+        """Get active trial for user"""
+        return self.data.get('trials', {}).get(str(user_id))
+
+    def add_trial_vote(self, defendant_id: str, voter_id: str, vote: bool):
+        """Add a vote to a trial"""
+        if 'trials' in self.data and str(defendant_id) in self.data['trials']:
+            self.data['trials'][str(defendant_id)]['votes'][str(voter_id)] = vote
+            self.save_data()
+
+    def get_trial_votes(self, user_id: str):
+        """Get votes for a trial"""
+        trial = self.get_active_trial(user_id)
+        return trial['votes'] if trial else {}
+
+    def clear_active_trial(self, user_id: str):
+        """Clear active trial"""
+        if 'trials' in self.data:
+            self.data['trials'].pop(str(user_id), None)
+            self.save_data()
+
+    def set_trial_cooldown(self, user_id: str, timestamp: float):
+        """Set trial cooldown"""
+        if 'trial_cooldowns' not in self.data:
+            self.data['trial_cooldowns'] = {}
+        self.data['trial_cooldowns'][str(user_id)] = timestamp
+        self.save_data()
+
+    def get_trial_cooldown(self, user_id: str):
+        """Get trial cooldown"""
+        return self.data.get('trial_cooldowns', {}).get(str(user_id), 0)
+
+    def get_escape_cooldown(self, user_id: str):
+        """Get last escape attempt timestamp"""
+        return self.data.get('escape_cooldowns', {}).get(str(user_id), 0)
+
+    def set_escape_cooldown(self, user_id: str, timestamp: float):
+        """Set escape attempt cooldown"""
+        if 'escape_cooldowns' not in self.data:
+            self.data['escape_cooldowns'] = {}
+        self.data['escape_cooldowns'][str(user_id)] = timestamp
+        self.save_data()
+
+    def create_combat(self, combat_data: dict):
+        """Create a new combat"""
+        if 'combats' not in self.data:
+            self.data['combats'] = {}
+        combat_id = str(uuid.uuid4())
+        self.data['combats'][combat_id] = combat_data
+        self.save_data()
+        return combat_id
+
+    def get_combat(self, combat_id: str):
+        """Get combat data"""
+        return self.data.get('combats', {}).get(combat_id)
+
+    def update_combat(self, combat_id: str, combat_data: dict):
+        """Update combat data"""
+        if 'combats' in self.data and combat_id in self.data['combats']:
+            self.data['combats'][combat_id] = combat_data
+            self.save_data()
+
+    def end_combat(self, combat_id: str):
+        """End and remove combat"""
+        if 'combats' in self.data:
+            self.data['combats'].pop(combat_id, None)
+            self.save_data()

@@ -18,59 +18,88 @@ class TwitterHandler:
         """Initialize Twitter API"""
         try:
             logger.info("Initializing Twitter API...")
+            logger.info("Checking Twitter API credentials...")
 
-            # Create a simple client with just the bearer token for v2 API
+            # Log credential status
+            logger.debug("Checking Twitter API credentials status...")
+            if not TWITTER_BEARER_TOKEN:
+                logger.error("❌ Bearer Token is missing")
+                raise ValueError("Bearer Token is required")
+
+            if not all([TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET]):
+                logger.error("❌ One or more OAuth credentials are missing")
+                raise ValueError("All OAuth credentials are required")
+
+            # Initialize client with v2 API
             self.client = tweepy.Client(
                 bearer_token=TWITTER_BEARER_TOKEN,
+                consumer_key=TWITTER_API_KEY,
+                consumer_secret=TWITTER_API_SECRET,
+                access_token=TWITTER_ACCESS_TOKEN,
+                access_token_secret=TWITTER_ACCESS_SECRET,
                 wait_on_rate_limit=True
             )
 
-            logger.info("Twitter API initialization complete")
+            logger.info("✅ Twitter API initialization complete")
+
         except Exception as e:
             logger.error(f"Failed to initialize Twitter API: {str(e)}", exc_info=True)
             raise
 
     async def verify_account(self, username: str):
-        """Simple Twitter account verification using v2 API"""
+        """Verify Twitter account existence with detailed error handling"""
         try:
-            # Clean up username
+            # Clean up and normalize username
             username = username.lstrip('@').lower().strip()
-            logger.info(f"Verifying Twitter account: @{username}")
+            logger.info(f"Starting verification for Twitter account: @{username}")
 
             try:
-                # Make a simple v2 API call
-                logger.debug(f"Making API call for @{username}")
-                response = self.client.get_users(usernames=[username])
+                # Make API call with error tracking
+                logger.debug(f"Making Twitter API call for username: @{username}")
 
-                # Log full response for debugging
-                logger.debug(f"API Response for @{username}: {response}")
+                # First try with v2 API get_users
+                response = self.client.get_users(
+                    usernames=[username],
+                    user_fields=['id', 'username', 'name']
+                )
 
-                if response and response.data and len(response.data) > 0:
-                    user_id = response.data[0].id
-                    user_name = response.data[0].username
-                    logger.info(f"✅ Found Twitter account: @{user_name} (ID: {user_id})")
-                    return True, user_id
+                logger.debug(f"Raw API Response for @{username}: {response}")
+
+                if response and hasattr(response, 'data') and response.data:
+                    user = response.data[0]
+                    logger.info(f"✅ Successfully found Twitter account: @{username}")
+                    logger.debug(f"User details - ID: {user.id}, Username: {user.username}")
+                    return True, user.id
                 else:
-                    logger.warning(f"❌ Account not found: @{username}")
+                    logger.warning(f"❌ No data returned for @{username}")
+                    if hasattr(response, 'errors'):
+                        logger.debug(f"API Errors: {response.errors}")
                     return False, None
 
             except TooManyRequests as e:
-                logger.error(f"Rate limit reached: {str(e)}")
+                logger.error(f"Rate limit exceeded: {str(e)}")
+                logger.debug("Rate limit details:", exc_info=True)
                 raise
+
             except Unauthorized as e:
                 logger.error(f"Authentication failed: {str(e)}")
+                logger.debug("Auth error details:", exc_info=True)
                 raise
+
             except Exception as e:
-                logger.error(f"API error: {type(e).__name__}: {str(e)}")
+                logger.error(f"Unexpected API error ({type(e).__name__}): {str(e)}")
+                logger.debug("Full error details:", exc_info=True)
                 return False, None
 
         except Exception as e:
-            logger.error(f"Error in verify_account: {str(e)}", exc_info=True)
+            logger.error(f"Error in verify_account: {str(e)}")
+            logger.debug("Stack trace:", exc_info=True)
             return False, None
 
     async def get_user_stats(self, twitter_id: str):
         """Get user statistics"""
         try:
+            logger.info(f"Fetching stats for Twitter ID: {twitter_id}")
             tweets = self.client.get_users_tweets(
                 id=twitter_id,
                 max_results=10,
@@ -79,8 +108,10 @@ class TwitterHandler:
 
             if tweets and tweets.data:
                 total_likes = sum(tweet.public_metrics['like_count'] for tweet in tweets.data)
+                logger.info(f"Successfully retrieved stats for user {twitter_id}")
                 return {'likes': total_likes}
 
+            logger.warning(f"No tweets found for user {twitter_id}")
             return {'likes': 0}
 
         except Exception as e:
