@@ -66,25 +66,6 @@ class Commands(commands.Cog):
         self.twitter = twitter_handler
         logger.info("Commands cog initialized")
 
-    @commands.command(name='ping')
-    async def ping_command(self, ctx):
-        """Simple command to test if the bot is responding"""
-        try:
-            logger.info(f"Ping command started by {ctx.author}")
-            logger.info(f"Channel: {ctx.channel.name}")
-            logger.info(f"Guild: {ctx.guild.name}")
-            await ctx.send('Pong! ✅')
-            logger.info(f"Ping command completed successfully")
-        except Exception as e:
-            logger.error(f"Error in ping command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Setup prison role when bot is ready"""
-        for guild in self.bot.guilds:
-            await self.points.setup_prison_role(guild)
-
     @commands.command(name='addpoints')
     @is_staff()
     async def add_points(self, ctx, member: discord.Member = None, amount: int = None):
@@ -764,8 +745,7 @@ class Commands(commands.Cog):
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
-        """Handle reactions for combat and voting"""
-        if user.bot:
+        """Handleif user.bot:
             return
 
         message = reaction.message

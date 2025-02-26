@@ -5,8 +5,6 @@ import logging
 from database import Database
 from point_system import PointSystem
 from twitter_handler import TwitterHandler
-from datetime import datetime
-from config import POINTS_TWITTER_LIKE
 
 # Configure logging
 logging.basicConfig(
@@ -17,91 +15,76 @@ logger = logging.getLogger('EngagementBot')
 
 class EngagementBot(commands.Bot):
     def __init__(self):
-        """Initialize bot with required intents and components"""
-        logger.info("Starting bot initialization...")
+        """Initialize bot with required intents"""
+        intents = discord.Intents.all()
 
-        # Configure intents with all permissions needed
-        intents = discord.Intents.all()  # Enable all intents for full functionality
-        logger.info(f"Configured intents: {intents.value}")
-
-        # Initialize the bot with required parameters
         super().__init__(
             command_prefix='!',
             intents=intents,
-            help_command=None  # We'll use our custom help command
+            help_command=None
         )
 
-        # Initialize components
-        try:
-            self.db = Database()
-            self.point_system = PointSystem(self.db, self)  # Pass bot instance to PointSystem
-            self.twitter_handler = TwitterHandler()
-            logger.info("Bot components initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize bot components: {e}", exc_info=True)
-            raise
+        self.db = Database()
+        self.point_system = PointSystem(self.db, self)
+        self.twitter_handler = TwitterHandler()
+
+        # Register ping command directly in the bot class
+        @self.command(name='ping')
+        async def ping(ctx):
+            try:
+                logger.info(f"Ping command received from {ctx.author} in {ctx.guild.name}")
+                await ctx.send("Pong! ✅")
+                logger.info("Ping command executed successfully")
+            except Exception as e:
+                logger.error(f"Error in ping command: {e}", exc_info=True)
+                await ctx.send("❌ Une erreur s'est produite.")
 
     async def setup_hook(self):
-        """Set up the bot and load commands"""
+        """Load other commands from the Commands cog"""
         try:
-            # Import Commands here to avoid circular imports
             from commands import Commands
             await self.add_cog(Commands(self, self.point_system, self.twitter_handler))
             logger.info("Commands cog loaded successfully")
-
-            # Log all registered commands
-            commands_list = [cmd.name for cmd in self.commands]
-            logger.info(f"Registered commands: {commands_list}")
         except Exception as e:
-            logger.error(f"Error in setup_hook: {e}", exc_info=True)
-            raise
+            logger.error(f"Failed to load Commands cog: {e}", exc_info=True)
 
     async def on_ready(self):
         """Called when the bot is ready"""
-        logger.info(f'Bot is ready! Logged in as {self.user.name} (ID: {self.user.id})')
-        logger.info(f"Connected to {len(self.guilds)} guilds")
-
-        # Initialize prison role in all guilds
-        for guild in self.guilds:
-            await self.point_system.setup_prison_role(guild)
-            logger.info(f"Prison role setup complete for guild: {guild.name}")
-
-        # Log available commands
-        commands_list = [cmd.name for cmd in self.commands]
-        logger.info(f"Available commands: {commands_list}")
+        try:
+            logger.info(f'Bot is ready! Logged in as {self.user.name} (ID: {self.user.id})')
+            logger.info(f"Connected to {len(self.guilds)} guilds")
+            logger.info(f"Available commands: {[c.name for c in self.commands]}")
+        except Exception as e:
+            logger.error(f"Error in on_ready: {e}", exc_info=True)
 
     async def on_message(self, message):
-        """Handle incoming messages"""
+        """Handle messages"""
         if message.author.bot:
             return
 
         try:
-            # Add detailed message logging
             if message.content.startswith(self.command_prefix):
-                logger.info(f"Received command message: {message.content}")
-                logger.info(f"From user: {message.author} ({message.author.id})")
-                logger.info(f"In channel: {message.channel.name} ({message.channel.id})")
-                logger.info(f"Guild: {message.guild.name} ({message.guild.id})")
+                logger.info(f"Received command: '{message.content}' from {message.author}")
 
-            # Process commands
             await self.process_commands(message)
-
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
-            await message.channel.send("❌ Une erreur s'est produite lors du traitement de la commande.")
+            await message.channel.send("❌ Une erreur s'est produite.")
 
     async def on_command_error(self, ctx, error):
         """Handle command errors"""
-        if isinstance(error, commands.CommandNotFound):
-            logger.warning(f"Command not found: {ctx.message.content}")
-            await ctx.send("Commande non trouvée. Utilisez !bothelp pour voir les commandes disponibles.")
-        else:
-            logger.error(f"Command error: {error}", exc_info=True)
-            await ctx.send("Une erreur s'est produite lors de l'exécution de la commande.")
+        try:
+            if isinstance(error, commands.CommandNotFound):
+                logger.warning(f"Command not found: {ctx.message.content}")
+                await ctx.send("❌ Commande non trouvée. Utilisez !help pour voir les commandes disponibles.")
+            else:
+                logger.error(f"Command error: {str(error)}", exc_info=True)
+                await ctx.send("❌ Une erreur s'est produite.")
+        except Exception as e:
+            logger.error(f"Error in error handler: {e}", exc_info=True)
 
 if __name__ == "__main__":
     try:
-        # Start the bot
         logger.info("Starting bot...")
         bot = EngagementBot()
         bot.run(os.getenv('DISCORD_TOKEN'))
