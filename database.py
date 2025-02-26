@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 import stat
 from typing import Dict, Any, Optional
+from config import SHOP_ITEMS_NEW  # Ajout de l'import manquant
 
 logger = logging.getLogger('EngagementBot')
 
@@ -35,10 +36,11 @@ class Database:
             'combats': {},
             'daily_commands': {},    # Track daily command usage
             'lottery_tickets': {},    # Track lottery tickets
-            'lottery_jackpot': 0,    # Current lottery jackpot
+            'lottery_jackpot': 1000,  # Base lottery jackpot
             'race_bets': {},         # Track race bets
             'roulette_cooldowns': {}, # Track roulette cooldowns
-            'losing_streaks': {} #Track losing streaks for games
+            'losing_streaks': {},     # Track losing streaks for games
+            'special_items': {}       # Track special items (NFTs, etc.)
         }
         logger.info("Empty data structure initialized")
 
@@ -103,7 +105,7 @@ class Database:
                 raise ValueError("Data must be a dictionary")
 
             # Ensure all required sections exist
-            for key in ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats', 'daily_commands', 'lottery_tickets', 'lottery_jackpot', 'race_bets', 'roulette_cooldowns', 'losing_streaks']:
+            for key in ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats', 'daily_commands', 'lottery_tickets', 'lottery_jackpot', 'race_bets', 'roulette_cooldowns', 'losing_streaks', 'special_items']:
                 if key not in self.data:
                     logger.warning(f"Missing key {key} in data, initializing empty")
                     self.data[key] = {}
@@ -356,6 +358,40 @@ class Database:
     def get_inventory(self, user_id: str):
         """Get user's inventory"""
         return self.data.get('inventories', {}).get(str(user_id), [])
+
+    def add_special_item(self, user_id: str, item_id: str) -> None:
+        """Add a special item (NFT, gift card, etc.) to user's inventory"""
+        user_id = str(user_id)
+        logger.info(f"Adding special item {item_id} to user {user_id}")
+
+        if 'special_items' not in self.data:
+            self.data['special_items'] = {}
+
+        if user_id not in self.data['special_items']:
+            self.data['special_items'][user_id] = []
+
+        self.data['special_items'][user_id].append({
+            'item_id': item_id,
+            'acquired_at': datetime.now().timestamp()
+        })
+
+        # Update remaining quantity in SHOP_ITEMS_NEW
+        if item_id in SHOP_ITEMS_NEW:
+            SHOP_ITEMS_NEW[item_id]['quantity'] -= 1
+
+        self.save_data()
+        logger.info(f"Successfully added special item {item_id} to user {user_id}")
+
+    def get_special_items(self, user_id: str) -> list:
+        """Get user's special items"""
+        return self.data.get('special_items', {}).get(str(user_id), [])
+
+    def check_item_availability(self, item_id: str) -> bool:
+        """Check if a special item is still available for purchase"""
+        if item_id not in SHOP_ITEMS_NEW:
+            return False
+        return SHOP_ITEMS_NEW[item_id]['quantity'] > 0
+
 
     def get_active_heist(self):
         """Get active heist if any"""

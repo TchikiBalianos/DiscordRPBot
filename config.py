@@ -158,6 +158,91 @@ SHOP_ITEMS = {
     }
 }
 
+# Narration Configuration
+COMMAND_NARRATIONS = {
+    "rob": [
+        "🦹 Tel un voleur dans la nuit, {user} se faufile silencieusement derrière {target}...",
+        "🎭 Masqué et déterminé, {user} prépare son coup contre {target}...",
+        "🌙 Profitant de l'obscurité, {user} suit discrètement {target} dans une ruelle sombre..."
+    ],
+    "heist": [
+        "🏦 La bande de {user} se réunit devant la banque, vérifiant une dernière fois leur équipement...",
+        "💰 Le plan est en place. {user} et son équipe enfilent leurs masques...",
+        "🚓 Les alarmes retentissent alors que {user} et sa crew forcent l'entrée du coffre..."
+    ],
+    "combat": [
+        "⚔️ Une tension électrique remplit l'air alors que {user} défie {target} en duel...",
+        "👊 La foule se rassemble en cercle autour de {user} et {target}...",
+        "🥊 {user} et {target} se toisent du regard, prêts à en découdre..."
+    ],
+    "roulette": [
+        "🎲 Les mains tremblantes, {user} fait tourner le barillet...",
+        "🔫 Un silence de mort règne dans la salle alors que {user} saisit l'arme...",
+        "💀 Les spectateurs retiennent leur souffle pendant que {user} joue sa vie..."
+    ],
+    "race": [
+        "🏇 Les chevaux s'ébrouent nerveusement dans leurs stalles...",
+        "🐎 La tension monte sur l'hippodrome alors que les jockeys prennent position...",
+        "🎪 La foule hurle d'excitation à l'approche du départ..."
+    ],
+    "escape": [
+        "🏃 Profitant de la relève des gardes, {user} commence son évasion...",
+        "🔒 Après des semaines de préparation, {user} met son plan à exécution...",
+        "⛓️ Les barreaux sciés, {user} attend le moment propice..."
+    ],
+    "deal": [
+        "🕶️ Dans une ruelle sombre, {user} attend nerveusement son contact...",
+        "💼 La mallette à la main, {user} vérifie que personne ne le suit...",
+        "🌃 Le deal est prêt, {user} espère que tout se passera bien..."
+    ]
+}
+
+# Shop Configuration (New Shop Items)
+SHOP_ITEMS_NEW = {
+    "thugz_nft": {
+        "name": "🎨 NFT Thugz Original",
+        "description": "NFT ultra rare de la collection Thugz - Pièce unique!",
+        "price": 100000,
+        "quantity": 1,
+        "type": "collectible"
+    },
+    "thugzblock_nft": {
+        "name": "🖼️ NFT ThugzBlock",
+        "description": "NFT de la collection ThugzBlock - Édition limitée",
+        "price": 25000,
+        "quantity": 30,
+        "type": "collectible"
+    },
+    "gift_card": {
+        "name": "💳 Carte Cadeau 10$",
+        "description": "Carte cadeau d'une valeur de 10$",
+        "price": 15000,
+        "quantity": 2,
+        "type": "reward"
+    },
+    "tech_gift": {
+        "name": "📱 Cadeau High-Tech",
+        "description": "Gadget technologique d'une valeur de 30€",
+        "price": 40000,
+        "quantity": 1,
+        "type": "reward"
+    },
+    "whitelist": {
+        "name": "⭐ Whitelist VIP",
+        "description": "Accès prioritaire aux futures collections",
+        "price": 50000,
+        "quantity": 10,
+        "type": "access"
+    },
+    "dlz_currency": {
+        "name": "💎 $DLZ",
+        "description": "100 $DLZ - La crypto des gangsters",
+        "price": 10000,
+        "quantity": 50,
+        "type": "currency"
+    }
+}
+
 # Heist Configuration
 HEIST_MIN_PLAYERS = 2
 HEIST_MAX_PLAYERS = 5

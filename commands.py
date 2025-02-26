@@ -6,6 +6,32 @@ from tweepy.errors import TooManyRequests, NotFound, Unauthorized
 from datetime import datetime, timedelta
 import random
 import asyncio
+from config import (
+    COMMAND_NARRATIONS, 
+    SHOP_ITEMS_NEW,
+    SHOP_ITEMS,
+    DAILY_LIMITS,
+    ROULETTE_MIN_BET,
+    ROULETTE_MAX_BET,
+    ROULETTE_MULTIPLIER,
+    ROULETTE_LOSS_PENALTY,
+    RACE_HORSES,
+    PRISON_ACTIVITIES,
+    LOTTERY_TICKET_PRICE,
+    LOTTERY_MAX_TICKETS,
+    DRUG_DEAL_MIN_INVESTMENT,
+    COMBAT_MOVES,
+    VOTE_REACTIONS,
+    RACE_MIN_BET,
+    RACE_MAX_BET,
+    RACE_INJURY_MULTIPLIER,
+    DICE_MIN_BET,
+    DICE_MAX_BET,
+    DICE_BONUS_MULTIPLIER,
+    DICE_COOLDOWN,
+    ROULETTE_COOLDOWN,
+    LOTTERY_DRAW_INTERVAL
+)
 
 logger = logging.getLogger('EngagementBot')
 
@@ -200,7 +226,19 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Tu ne peux pas te voler toi-même!")
                 return
 
+            # Get random narration for rob
+            narration = random.choice(COMMAND_NARRATIONS['rob']).format(
+                user=ctx.author.name,
+                target=target.name
+            )
+            logger.info(f"Rob command initiated by {ctx.author} targeting {target}. Using narration: {narration}")
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
+
             success, message = await self.points.try_rob(ctx.author.id, target.id)
+            logger.info(f"Rob attempt result - Success: {success}, Message: {message}")
             await ctx.send(message)
 
         except Exception as e:
@@ -395,6 +433,7 @@ class Commands(commands.Cog):
                 color=discord.Color.gold()
             )
 
+            # Add regular items
             for item_id, item in SHOP_ITEMS.items():
                 embed.add_field(
                     name=f"{item['name']} - {item['price']} points",
@@ -402,6 +441,22 @@ class Commands(commands.Cog):
                     inline=False
                 )
 
+            # Add special items
+            embed.add_field(
+                name="🌟 Items Spéciaux", 
+                value="Collection unique et limitée:",
+                inline=False
+            )
+
+            for item_id, item in SHOP_ITEMS_NEW.items():
+                quantity_text = f"(Reste: {item['quantity']})" if item['quantity'] > 0 else "(SOLD OUT)"
+                embed.add_field(
+                    name=f"{item['name']} - {item['price']} points {quantity_text}",
+                    value=f"{item['description']}\nID: `{item_id}`\nType: {item['type']}",
+                    inline=False
+                )
+
+            logger.info(f"Shop displayed to {ctx.author}, showing {len(SHOP_ITEMS)} regular items and {len(SHOP_ITEMS_NEW)} special items")
             await ctx.send(embed=embed)
 
         except Exception as e:
@@ -413,11 +468,55 @@ class Commands(commands.Cog):
         """Buy an item from the shop"""
         try:
             if not item_id:
-                await ctx.send("❌ Spécifie l'objet à acheter! Exemple: `!buy lockpick`")
+                await ctx.send("❌ Spécifie l'objet à acheter! Exemple: `!buy thugz_nft`")
                 return
 
-            success, message = await self.points.buy_item(str(ctx.author.id), item_id.lower())
-            await ctx.send(message)
+            item_id = item_id.lower()
+            logger.info(f"{ctx.author} attempting to buy item: {item_id}")
+
+            # Check special items first
+            if item_id in SHOP_ITEMS_NEW:
+                item = SHOP_ITEMS_NEW[item_id]
+                logger.info(f"Special item purchase attempt - Item: {item['name']}, Quantity left: {item['quantity']}")
+
+                # Check quantity
+                if item['quantity'] <= 0:
+                    await ctx.send("❌ Cet objet n'est plus disponible!")
+                    return
+
+                # Check points
+                points = self.points.db.get_user_points(str(ctx.author.id))
+                if points < item['price']:
+                    await ctx.send(f"❌ Tu n'as pas assez de points! (Prix: {item['price']} points)")
+                    return
+
+                # Process purchase
+                self.points.db.add_points(str(ctx.author.id), -item['price'])
+                self.points.db.add_special_item(str(ctx.author.id), item_id)
+
+                await ctx.send(f"✅ Tu as acheté {item['name']} pour {item['price']} points!")
+                logger.info(f"Special item purchased successfully - User: {ctx.author}, Item: {item['name']}")
+
+                # Special announcement for rare items
+                if item['type'] == 'collectible':
+                    announcement = f"🎉 {ctx.author.name} vient d'acquérir le {item['name']}!"
+                    logger.info(f"Broadcasting collectible purchase announcement")
+                    for guild in self.bot.guilds:
+                        try:
+                            channel = discord.utils.get(guild.text_channels, name='général') or guild.text_channels[0]
+                            await channel.send(announcement)
+                        except Exception as e:
+                            logger.error(f"Failed to send announcement in guild {guild.id}: {e}")
+                            continue
+
+            # Check regular items
+            elif item_id in SHOP_ITEMS:
+                success, message = await self.points.buy_item(str(ctx.author.id), item_id)
+                logger.info(f"Regular item purchase attempt - Success: {success}, Message: {message}")
+                await ctx.send(message)
+
+            else:
+                await ctx.send("❌ Cet objet n'existe pas!")
 
         except Exception as e:
             logger.error(f"Error in buy command: {e}", exc_info=True)
@@ -428,28 +527,49 @@ class Commands(commands.Cog):
         """Show your inventory"""
         try:
             inventory = self.points.db.get_inventory(str(ctx.author.id))
-
-            if not inventory:
-                await ctx.send("📦 Ton inventaire est vide!")
-                return
+            special_items = self.points.db.get_special_items(str(ctx.author.id))
+            logger.info(f"Fetching inventory for {ctx.author} - Regular items: {len(inventory)}, Special items: {len(special_items)}")
 
             embed = discord.Embed(
                 title="📦 Ton Inventaire",
                 color=discord.Color.blue()
             )
 
-            item_counts = {}
-            for item_id in inventory:
-                if item_id in SHOP_ITEMS:
-                    item_counts[item_id] = item_counts.get(item_id, 0) + 1
+            # Regular items
+            if inventory:
+                item_counts = {}
+                for item_id in inventory:
+                    if item_id in SHOP_ITEMS:
+                        item_counts[item_id] = item_counts.get(item_id, 0) + 1
 
-            for item_id, count in item_counts.items():
-                item = SHOP_ITEMS[item_id]
+                for item_id, count in item_counts.items():
+                    item = SHOP_ITEMS[item_id]
+                    embed.add_field(
+                        name=f"{item['name']} x{count}",
+                        value=item['description'],
+                        inline=False
+                    )
+
+            # Special items
+            if special_items:
                 embed.add_field(
-                    name=f"{item['name']} x{count}",
-                    value=item['description'],
+                    name="🌟 Items Spéciaux",
+                    value="Collection unique:",
                     inline=False
                 )
+                for item in special_items:
+                    if item['item_id'] in SHOP_ITEMS_NEW:
+                        special_item = SHOP_ITEMS_NEW[item['item_id']]
+                        acquired_date = datetime.fromtimestamp(item['acquired_at']).strftime('%d/%m/%Y')
+                        embed.add_field(
+                            name=f"{special_item['name']}",
+                            value=f"{special_item['description']}\nAcquis le: {acquired_date}",
+                            inline=False
+                        )
+
+            if not inventory and not special_items:
+                await ctx.send("📦 Ton inventaire est vide!")
+                return
 
             await ctx.send(embed=embed)
 
@@ -462,6 +582,13 @@ class Commands(commands.Cog):
     async def heist_command(self, ctx):
         """Start a heist"""
         try:
+            # Get random narration for heist
+            narration = random.choice(COMMAND_NARRATIONS['heist']).format(user=ctx.author.name)
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
+
             success, message = await self.points.start_heist(str(ctx.author.id))
             await ctx.send(message)
 
@@ -489,6 +616,13 @@ class Commands(commands.Cog):
                 await ctx.send(f"❌ Spécifie le montant à investir! Exemple: `!deal {DRUG_DEAL_MIN_INVESTMENT}`")
                 return
 
+            # Get random narration for deal
+            narration = random.choice(COMMAND_NARRATIONS['deal']).format(user=ctx.author.name)
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
+
             success, message = await self.points.start_drug_deal(str(ctx.author.id), amount)
             await ctx.send(message)
 
@@ -501,6 +635,13 @@ class Commands(commands.Cog):
     async def escape_command(self, ctx):
         """Try to escape from police"""
         try:
+            # Get random narration for escape
+            narration = random.choice(COMMAND_NARRATIONS['escape']).format(user=ctx.author.name)
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
+
             success, message = await self.points.try_escape_police(str(ctx.author.id))
             await ctx.send(message)
 
@@ -520,6 +661,16 @@ class Commands(commands.Cog):
             if target.id == ctx.author.id:
                 await ctx.send("❌ Tu ne peux pas te battre contre toi-même!")
                 return
+
+            # Get random narration for combat
+            narration = random.choice(COMMAND_NARRATIONS['combat']).format(
+                user=ctx.author.name,
+                target=target.name
+            )
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
 
             success, message = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
             if success:
@@ -615,7 +766,9 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Tu dois écrire un plaidoyer! Exemple: `!tribunal Je suis innocent, c'était de la légitime défense!`")
                 return
 
+            logger.info(f"Trial request from {ctx.author} with plea: {plea}")
             success, message = await self.points.request_trial(str(ctx.author.id), plea)
+
             if success:
                 # Announce trial to everyone
                 embed = discord.Embed(
@@ -627,8 +780,10 @@ class Commands(commands.Cog):
                 embed.add_field(name="🗳️ Vote", value="Utilisez `!vote @user oui/non` pour voter!", inline=False)
                 embed.set_footer(text="Le procès dure 5 minutes!")
                 await ctx.send(embed=embed)
+                logger.info(f"Trial started successfully for {ctx.author}")
             else:
                 await ctx.send(message)
+                logger.warning(f"Trial request denied for {ctx.author}: {message}")
 
         except Exception as e:
             logger.error(f"Error in request_trial command: {e}", exc_info=True)
@@ -663,6 +818,18 @@ class Commands(commands.Cog):
                 await ctx.send(f"❌ Le pari doit être entre {ROULETTE_MIN_BET} et {ROULETTE_MAX_BET} points!")
                 return
 
+            # Get random narration for roulette
+            narration = random.choice(COMMAND_NARRATIONS['roulette']).format(user=ctx.author.name)
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
+
+            points = self.points.db.get_user_points(str(ctx.author.id))
+            if points < bet:
+                await ctx.send("❌ Tu n'as pas assez de points!")
+                return
+
             # Check cooldown
             last_play = self.points.db.get_roulette_cooldown(str(ctx.author.id))
             now = datetime.now().timestamp()
@@ -671,22 +838,15 @@ class Commands(commands.Cog):
                 await ctx.send(f"⏳ Tu dois attendre {remaining} secondes avant de rejouer!")
                 return
 
-            points = self.points.db.get_user_points(str(ctx.author.id))
-            if points < bet:
-                await ctx.send("❌ Tu n'as pas assez de points!")
-                return
-
             # 1/6 chance to survive
             if random.randint(1, 6) == 6:
                 reward = bet * ROULETTE_MULTIPLIER
                 self.points.db.add_points(str(ctx.author.id), reward - bet)
-                self.points.db.update_losing_streak(str(ctx.author.id), 'roulette', True)
                 await ctx.send(f"🎯 *click* ... Tu as survécu! Tu gagnes {reward} points!")
             else:
                 # Apply loss penalty
                 penalty = bet * (1 + ROULETTE_LOSS_PENALTY)
                 self.points.db.add_points(str(ctx.author.id), -int(penalty))
-                self.points.db.update_losing_streak(str(ctx.author.id), 'roulette', False)
                 await ctx.send(f"💥 *BANG* ... Tu es mort! Tu perds {int(penalty)} points!")
 
             self.points.db.set_roulette_cooldown(str(ctx.author.id))
@@ -718,6 +878,13 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Tu n'as pas assez de points!")
                 return
 
+            # Get random narration for race
+            narration = random.choice(COMMAND_NARRATIONS['race']).format(user=ctx.author.name, horse=RACE_HORSES[horse]['name'])
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
+
             # Place bet
             self.points.db.add_points(str(ctx.author.id), -bet)
 
@@ -744,7 +911,6 @@ class Commands(commands.Cog):
             if horse == winner and not injury:
                 winnings = int(bet * selected_horse['odds'])
                 self.points.db.add_points(str(ctx.author.id), winnings)
-                self.points.db.update_losing_streak(str(ctx.author.id), 'race', True)
                 await ctx.send(f"🏆 {selected_horse['name']} gagne! Tu remportes {winnings} points!")
             else:
                 loss_message = ""
@@ -753,7 +919,6 @@ class Commands(commands.Cog):
                     self.points.db.add_points(str(ctx.author.id), -extra_loss)
                     loss_message = f"\n🤕 Ton cheval s'est blessé! Tu perds {extra_loss} points supplémentaires!"
 
-                self.points.db.update_losing_streak(str(ctx.author.id), 'race', False)
                 await ctx.send(f"😢 {RACE_HORSES[winner]['name']} gagne! Tu perds ton pari!{loss_message}")
 
         except Exception as e:
@@ -783,14 +948,48 @@ class Commands(commands.Cog):
                 await ctx.send(f"❌ Tu n'as pas assez de points! Un ticket coûte {LOTTERY_TICKET_PRICE} points.")
                 return
 
+            logger.info(f"Lottery ticket purchase attempt by {ctx.author} with numbers: {numbers}")
             if self.points.db.buy_lottery_ticket(str(ctx.author.id), list(numbers)):
                 self.points.db.add_points(str(ctx.author.id), -LOTTERY_TICKET_PRICE)
                 await ctx.send(f"🎫 Ticket acheté avec les numéros {', '.join(map(str, numbers))}!")
+                logger.info(f"Lottery ticket purchased successfully by {ctx.author}")
             else:
                 await ctx.send(f"❌ Tu as déjà {LOTTERY_MAX_TICKETS} tickets!")
+                logger.warning(f"Lottery ticket purchase failed - max tickets reached for {ctx.author}")
 
         except Exception as e:
             logger.error(f"Error in lottery command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='tribunal', aliases=['trial'])
+    async def request_trial_command(self, ctx, *, plea: str = None):
+        """Request a trial"""
+        try:
+            if not plea:
+                await ctx.send("❌ Tu dois écrire un plaidoyer! Exemple: `!tribunal Je suis innocent, c'était de la légitime défense!`")
+                return
+
+            logger.info(f"Trial request from {ctx.author} with plea: {plea}")
+            success, message = await self.points.request_trial(str(ctx.author.id), plea)
+
+            if success:
+                # Announce trial to everyone
+                embed = discord.Embed(
+                    title="⚖️ Nouveau Procès",
+                    description=f"Un procès commence pour {ctx.author.name}!",
+                    color=discord.Color.gold()
+                )
+                embed.add_field(name="📜 Plaidoyer", value=plea, inline=False)
+                embed.add_field(name="🗳️ Vote", value="Utilisez `!vote @user oui/non` pour voter!", inline=False)
+                embed.set_footer(text="Le procès dure 5 minutes!")
+                await ctx.send(embed=embed)
+                logger.info(f"Trial started successfully for {ctx.author}")
+            else:
+                await ctx.send(message)
+                logger.warning(f"Trial request denied for {ctx.author}: {message}")
+
+        except Exception as e:
+            logger.error(f"Error in request_trial command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
     @tasks.loop(seconds=LOTTERY_DRAW_INTERVAL)
@@ -883,6 +1082,16 @@ class Commands(commands.Cog):
             if target_points < bet:
                 await ctx.send(f"❌ {target.name} n'a pas assez de points!")
                 return
+
+            # Get random narration for dice
+            narration = random.choice(COMMAND_NARRATIONS['dice']).format(
+                user=ctx.author.name,
+                target=target.name
+            )
+            await ctx.send(narration)
+
+            # Wait for tension
+            await asyncio.sleep(2)
 
             # Roll dice
             challenger_dice = [random.randint(1, 6), random.randint(1, 6)]
