@@ -30,7 +30,9 @@ from config import (
     DICE_BONUS_MULTIPLIER,
     DICE_COOLDOWN,
     ROULETTE_COOLDOWN,
-    LOTTERY_DRAW_INTERVAL
+    LOTTERY_DRAW_INTERVAL,
+    POINTS_VOICE_PER_MINUTE,
+    POINTS_MESSAGE
 )
 
 logger = logging.getLogger('EngagementBot')
@@ -158,13 +160,20 @@ class Commands(commands.Cog):
             logger.info(f"Attempting to link Twitter account @{twitter_username} for user {ctx.author}")
 
             try:
-                exists, twitter_id = await self.twitter.verify_account(twitter_username)
-                logger.info(f"Verification result for @{twitter_username}: exists={exists}, id={twitter_id}")
+                exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
+                logger.info(f"Verification result for @{twitter_username}: exists={exists}, id={twitter_id}, metrics={metrics}")
 
                 if exists and twitter_id:
                     # Store the link
                     self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
                     await ctx.send(f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
+
+                    # Show initial metrics if available
+                    if metrics:
+                        await ctx.send(f"📊 Stats initiales :\n"
+                                     f"• Followers: {metrics.get('followers_count', 0)}\n"
+                                     f"• Following: {metrics.get('following_count', 0)}\n"
+                                     f"• Tweets: {metrics.get('tweet_count', 0)}")
                 else:
                     await ctx.send("❌ Ce compte Twitter n'existe pas. Vérifiez le nom d'utilisateur et réessayez.")
 
@@ -212,6 +221,42 @@ class Commands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in test_twitter command: {str(e)}", exc_info=True)
             await ctx.send("❌ Une erreur inattendue s'est produite.")
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        """Track voice channel activity"""
+        try:
+            # Si l'utilisateur rejoint un canal vocal
+            if before.channel is None and after.channel is not None:
+                logger.info(f"User {member} joined voice channel {after.channel}")
+                self.points.db.start_voice_session(str(member.id))
+
+            # Si l'utilisateur quitte un canal vocal
+            elif before.channel is not None and after.channel is None:
+                logger.info(f"User {member} left voice channel {before.channel}")
+                minutes = self.points.db.end_voice_session(str(member.id))
+                if minutes > 0:
+                    points = minutes * POINTS_VOICE_PER_MINUTE
+                    self.points.db.add_points(str(member.id), points)
+                    logger.info(f"Added {points} points to {member} for {minutes} minutes in voice")
+
+        except Exception as e:
+            logger.error(f"Error in voice state update: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Award points for messages"""
+        try:
+            # Ignore bot messages and commands
+            if message.author.bot or message.content.startswith('!'):
+                return
+
+            # Award points for messages
+            self.points.db.add_points(str(message.author.id), POINTS_MESSAGE)
+            logger.info(f"Added {POINTS_MESSAGE} points to {message.author} for message")
+
+        except Exception as e:
+            logger.error(f"Error in message points: {e}", exc_info=True)
 
     @commands.command(name='rob')
     @check_daily_limit('rob')
@@ -412,11 +457,28 @@ class Commands(commands.Cog):
             stats = await self.twitter.get_user_stats(twitter_id)
 
             embed = discord.Embed(
-                title=f"Statistiques Twitter pour @{twitter_username}",
+                title=f"📊 Statistiques Twitter pour @{twitter_username}",
                 color=discord.Color.blue()
             )
+
+            # Afficher les statistiques d'engagement
             embed.add_field(name="👍 Likes", value=str(stats.get('likes', 0)), inline=True)
-            embed.add_field(name="🔄 Dernière mise à jour", value="À l'instant", inline=True)
+            embed.add_field(name="🔄 Retweets", value=str(stats.get('retweets', 0)), inline=True)
+            embed.add_field(name="💬 Réponses", value=str(stats.get('replies', 0)), inline=True)
+
+            # Afficher l'engagement total et les points gagnés
+            embed.add_field(
+                name="📈 Engagement Total",
+                value=str(stats.get('total_engagement', 0)),
+                inline=False
+            )
+            embed.add_field(
+                name="💰 Points Gagnés",
+                value=str(stats.get('points_earned', 0)),
+                inline=False
+            )
+
+            embed.set_footer(text="Dernière mise à jour: maintenant")
             await ctx.send(embed=embed)
 
         except Exception as e:

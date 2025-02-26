@@ -1,16 +1,16 @@
 {
   "users": {
     "581093278351360033": {
-      "points": 415
+      "points": 565
     },
     "1186142302800982037": {
       "points": 2
     },
     "250313844554072064": {
-      "points": 4
+      "points": 26
     },
     "1025336880365064224": {
-      "points": 2
+      "points": 12
     }
   },
   "rob_cooldowns": {
@@ -55,5 +55,19 @@
     "581093278351360033": 1740578278.055113
   },
   "escape_cooldowns": {},
-  "combats": {}
+  "combats": {},
+  "daily_commands": {
+    "581093278351360033": {
+      "2025-02-26": {}
+    }
+  },
+  "lottery_tickets": {},
+  "lottery_jackpot": {},
+  "race_bets": {},
+  "roulette_cooldowns": {},
+  "losing_streaks": {},
+  "special_items": {},
+  "drug_deal_cooldowns": {
+    "581093278351360033": 1740584824.336731
+  }
 }

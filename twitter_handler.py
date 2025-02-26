@@ -4,7 +4,10 @@ from config import (
     TWITTER_API_SECRET,
     TWITTER_ACCESS_TOKEN,
     TWITTER_ACCESS_SECRET,
-    TWITTER_BEARER_TOKEN
+    TWITTER_BEARER_TOKEN,
+    POINTS_TWITTER_LIKE,
+    POINTS_TWITTER_RT,
+    POINTS_TWITTER_COMMENT
 )
 import logging
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
@@ -47,72 +50,85 @@ class TwitterHandler:
             raise
 
     async def verify_account(self, username: str):
-        """Verify Twitter account existence with detailed error handling"""
+        """Verify Twitter account existence with enhanced validation"""
         try:
-            # Clean up and normalize username
             username = username.lstrip('@').lower().strip()
             logger.info(f"Starting verification for Twitter account: @{username}")
 
             try:
-                # Make API call with error tracking
-                logger.debug(f"Making Twitter API call for username: @{username}")
-
-                # First try with v2 API get_users
                 response = self.client.get_users(
                     usernames=[username],
-                    user_fields=['id', 'username', 'name']
+                    user_fields=['id', 'username', 'public_metrics']
                 )
-
-                logger.debug(f"Raw API Response for @{username}: {response}")
 
                 if response and hasattr(response, 'data') and response.data:
                     user = response.data[0]
                     logger.info(f"✅ Successfully found Twitter account: @{username}")
-                    logger.debug(f"User details - ID: {user.id}, Username: {user.username}")
-                    return True, user.id
+                    return True, user.id, user.public_metrics
                 else:
                     logger.warning(f"❌ No data returned for @{username}")
-                    if hasattr(response, 'errors'):
-                        logger.debug(f"API Errors: {response.errors}")
-                    return False, None
+                    return False, None, None
 
             except TooManyRequests as e:
                 logger.error(f"Rate limit exceeded: {str(e)}")
-                logger.debug("Rate limit details:", exc_info=True)
                 raise
 
             except Unauthorized as e:
                 logger.error(f"Authentication failed: {str(e)}")
-                logger.debug("Auth error details:", exc_info=True)
                 raise
-
-            except Exception as e:
-                logger.error(f"Unexpected API error ({type(e).__name__}): {str(e)}")
-                logger.debug("Full error details:", exc_info=True)
-                return False, None
 
         except Exception as e:
             logger.error(f"Error in verify_account: {str(e)}")
-            logger.debug("Stack trace:", exc_info=True)
-            return False, None
+            return False, None, None
 
     async def get_user_stats(self, twitter_id: str):
-        """Get user statistics"""
+        """Get user engagement statistics with enhanced tracking"""
         try:
             logger.info(f"Fetching stats for Twitter ID: {twitter_id}")
+
+            # Get recent tweets (last 7 days)
             tweets = self.client.get_users_tweets(
                 id=twitter_id,
-                max_results=10,
-                tweet_fields=['public_metrics']
+                max_results=100,
+                tweet_fields=['public_metrics', 'created_at']
             )
 
+            stats = {
+                'likes': 0,
+                'retweets': 0,
+                'replies': 0,
+                'total_engagement': 0,
+                'points_earned': 0
+            }
+
             if tweets and tweets.data:
-                total_likes = sum(tweet.public_metrics['like_count'] for tweet in tweets.data)
-                logger.info(f"Successfully retrieved stats for user {twitter_id}")
-                return {'likes': total_likes}
+                for tweet in tweets.data:
+                    metrics = tweet.public_metrics
+
+                    # Track each type of engagement
+                    likes = metrics['like_count']
+                    retweets = metrics['retweet_count']
+                    replies = metrics['reply_count']
+
+                    # Update stats
+                    stats['likes'] += likes
+                    stats['retweets'] += retweets
+                    stats['replies'] += replies
+
+                    # Calculate points earned
+                    points = (
+                        likes * POINTS_TWITTER_LIKE +
+                        retweets * POINTS_TWITTER_RT +
+                        replies * POINTS_TWITTER_COMMENT
+                    )
+                    stats['points_earned'] += points
+                    stats['total_engagement'] = likes + retweets + replies
+
+                logger.info(f"Successfully retrieved stats for user {twitter_id}: {stats}")
+                return stats
 
             logger.warning(f"No tweets found for user {twitter_id}")
-            return {'likes': 0}
+            return stats
 
         except Exception as e:
             logger.error(f"Error getting user stats: {str(e)}", exc_info=True)
