@@ -28,9 +28,19 @@ class TwitterHandler:
             if not self.client:
                 raise Exception("Twitter client initialization failed")
 
+            # Test connection
+            try:
+                test_response = self.client.get_user(username="X")
+                if test_response and test_response.data:
+                    logger.info("Twitter API connection test successful")
+                else:
+                    logger.warning("Twitter API connection test returned no data")
+            except Exception as e:
+                logger.error(f"Twitter API connection test failed: {e}", exc_info=True)
+
             # Cache for user data
             self._cache = {}
-            self._cache_duration = timedelta(minutes=15)  # Increased cache duration
+            self._cache_duration = timedelta(minutes=15)
             logger.info("Twitter API initialization successful")
 
         except Exception as e:
