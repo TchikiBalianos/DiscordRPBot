@@ -34,8 +34,12 @@ class TwitterHandler:
     def _test_connection(self):
         try:
             # Test with a simple API call
-            self.client.get_me()
-            logger.info("Twitter API connection test successful")
+            me = self.client.get_me()
+            if me.data:
+                logger.info(f"Twitter API connection test successful - Connected as @{me.data.username}")
+            else:
+                logger.error("Twitter API connection test failed - Could not get user info")
+                raise Exception("Failed to get user info")
         except tweepy.errors.Unauthorized as e:
             logger.error(f"Twitter API authentication test failed: {e}")
             logger.exception("Authentication test error traceback:")
@@ -59,6 +63,7 @@ class TwitterHandler:
                 raise tweepy.errors.NotFound()
 
             user_id = user.data.id
+            logger.info(f"Found Twitter user {username} with ID {user_id}")
 
             # Get recent tweets
             tweets = self.client.get_users_tweets(
@@ -69,6 +74,7 @@ class TwitterHandler:
 
             if not tweets.data:
                 # User exists but has no tweets
+                logger.info(f"No tweets found for user {username}")
                 return {
                     'likes': 0,
                     'retweets': 0,

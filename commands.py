@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from datetime import datetime
 import logging
+import tweepy
 
 logger = logging.getLogger('EngagementBot')
 
@@ -121,10 +122,56 @@ class Commands(commands.Cog):
             "!rob @user": "Try to steal points from another user",
             "!linktwitter @username": "Link your Twitter account",
             "!twitterpoints": "Check your Twitter engagement points",
-            "!bothelp": "Show this help message"
+            "!bothelp": "Show this help message",
+            "!testtwitter @username": "Test Twitter API connection"
         }
 
         for cmd, desc in commands_list.items():
             embed.add_field(name=cmd, value=desc, inline=False)
 
         await ctx.send(embed=embed)
+
+    @commands.command(name='testtwitter')
+    async def test_twitter(self, ctx, twitter_username: str):
+        """Test Twitter API connection and data retrieval"""
+        try:
+            # Remove @ if present
+            twitter_username = twitter_username.lstrip('@')
+            logger.info(f"Testing Twitter API for username: {twitter_username}")
+
+            # Test user retrieval
+            user = self.twitter.client.get_user(username=twitter_username)
+            if user and user.data:
+                await ctx.send(f"✅ Found Twitter user: @{user.data.username} (ID: {user.data.id})")
+                logger.info(f"Successfully found Twitter user: {user.data}")
+
+                # Test tweets retrieval
+                tweets = self.twitter.client.get_users_tweets(
+                    user.data.id,
+                    max_results=10,
+                    tweet_fields=['public_metrics']
+                )
+
+                if tweets and tweets.data:
+                    tweet_count = len(tweets.data)
+                    await ctx.send(f"✅ Retrieved {tweet_count} tweets from user")
+                    # Log first tweet metrics for debugging
+                    if tweet_count > 0:
+                        metrics = tweets.data[0].public_metrics
+                        logger.info(f"First tweet metrics: {metrics}")
+                        await ctx.send(f"Sample tweet metrics: {metrics}")
+                else:
+                    await ctx.send("❌ No tweets found for this user")
+            else:
+                await ctx.send("❌ Could not find Twitter user")
+
+        except tweepy.errors.Unauthorized as e:
+            logger.error(f"Twitter API authentication error: {e}")
+            await ctx.send("❌ Twitter API authentication failed")
+        except tweepy.errors.NotFound as e:
+            logger.error(f"Twitter user not found: {e}")
+            await ctx.send(f"❌ Twitter user @{twitter_username} not found")
+        except Exception as e:
+            logger.error(f"Error in test_twitter command: {e}")
+            logger.exception("Full traceback:")
+            await ctx.send(f"❌ Error testing Twitter API: {str(e)}")
