@@ -16,7 +16,13 @@ logger = logging.getLogger('EngagementBot')
 class EngagementBot(commands.Bot):
     def __init__(self):
         """Initialize bot with required intents"""
-        intents = discord.Intents.all()
+        # Configure intents
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True
+        intents.reactions = True
+        intents.guild_messages = True
+        logger.info(f"Configured intents: {intents.value}")
 
         super().__init__(
             command_prefix='!',
@@ -28,32 +34,24 @@ class EngagementBot(commands.Bot):
         self.point_system = PointSystem(self.db, self)
         self.twitter_handler = TwitterHandler()
 
-        # Register ping command directly in the bot class
-        @self.command(name='ping')
-        async def ping(ctx):
-            try:
-                logger.info(f"Ping command received from {ctx.author} in {ctx.guild.name}")
-                await ctx.send("Pong! ✅")
-                logger.info("Ping command executed successfully")
-            except Exception as e:
-                logger.error(f"Error in ping command: {e}", exc_info=True)
-                await ctx.send("❌ Une erreur s'est produite.")
-
     async def setup_hook(self):
-        """Load other commands from the Commands cog"""
+        """Load commands"""
         try:
+            logger.info("Loading Commands cog...")
             from commands import Commands
             await self.add_cog(Commands(self, self.point_system, self.twitter_handler))
             logger.info("Commands cog loaded successfully")
+            logger.info(f"Available commands: {[c.name for c in self.commands]}")
         except Exception as e:
             logger.error(f"Failed to load Commands cog: {e}", exc_info=True)
+            raise
 
     async def on_ready(self):
         """Called when the bot is ready"""
         try:
             logger.info(f'Bot is ready! Logged in as {self.user.name} (ID: {self.user.id})')
-            logger.info(f"Connected to {len(self.guilds)} guilds")
-            logger.info(f"Available commands: {[c.name for c in self.commands]}")
+            for guild in self.guilds:
+                logger.info(f"Connected to guild: {guild.name} (ID: {guild.id})")
         except Exception as e:
             logger.error(f"Error in on_ready: {e}", exc_info=True)
 
@@ -64,7 +62,7 @@ class EngagementBot(commands.Bot):
 
         try:
             if message.content.startswith(self.command_prefix):
-                logger.info(f"Received command: '{message.content}' from {message.author}")
+                logger.info(f"Command received: '{message.content}' from {message.author}")
 
             await self.process_commands(message)
         except Exception as e:
@@ -87,6 +85,9 @@ if __name__ == "__main__":
     try:
         logger.info("Starting bot...")
         bot = EngagementBot()
-        bot.run(os.getenv('DISCORD_TOKEN'))
+        token = os.getenv('DISCORD_TOKEN')
+        if not token:
+            raise ValueError("DISCORD_TOKEN not found in environment variables")
+        bot.run(token)
     except Exception as e:
         logger.error(f"Failed to start bot: {e}", exc_info=True)
