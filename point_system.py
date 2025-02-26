@@ -15,36 +15,38 @@ class PointSystem:
         self.db.add_points(user_id, points)
         return points
 
-    async def award_twitter_points(self, user_id, metrics):
-        """Award points for Twitter engagement based on multiple metrics"""
+    async def award_twitter_points(self, user_id, stats):
+        """Award points for Twitter engagement"""
         total_points = 0
-        points_map = {
-            'likes': POINTS_TWITTER_LIKE,
-            'retweets': POINTS_TWITTER_RT,
-            'replies': POINTS_TWITTER_COMMENT
-        }
-
-        for action, count in metrics.items():
-            if action in points_map:
-                points = points_map[action] * count
-                total_points += points
+        
+        # Points for likes
+        like_points = stats['likes'] * POINTS_TWITTER_LIKE
+        total_points += like_points
+        
+        # Points for retweets
+        retweet_points = stats['retweets'] * POINTS_TWITTER_RT
+        total_points += retweet_points
+        
+        # Points for replies
+        reply_points = stats['replies'] * POINTS_TWITTER_COMMENT
+        total_points += reply_points
 
         if total_points > 0:
             self.db.add_points(user_id, total_points)
-
+            
         return total_points
 
     async def try_rob(self, robber_id, victim_id):
         now = datetime.now().timestamp()
         last_rob = self.db.get_rob_cooldown(robber_id)
-
+        
         if now - last_rob < ROB_COOLDOWN:
             return False, "You must wait before attempting another robbery!"
 
         if random.random() < ROB_SUCCESS_RATE:
             amount = random.randint(ROB_MIN_AMOUNT, ROB_MAX_AMOUNT)
             victim_points = self.db.get_user_points(victim_id)
-
+            
             if victim_points < amount:
                 amount = victim_points
 
