@@ -1,13 +1,14 @@
 import os
 
 # Discord Configuration
-DISCORD_TOKEN = os.getenv('DISCORD_TOKEN', 'your-discord-token')
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')  # Remove default value for security
+if not DISCORD_TOKEN:
+    raise ValueError("DISCORD_TOKEN is required")
 
 # Twitter API Configuration
 TWITTER_API_KEY = os.getenv('TWITTER_API_KEY', 'your-twitter-api-key')
 TWITTER_API_SECRET = os.getenv('TWITTER_API_SECRET', 'your-twitter-api-secret')
-TWITTER_ACCESS_TOKEN = os.getenv('TWITTER_ACCESS_TOKEN', 'your-twitter-access-token')
-TWITTER_ACCESS_SECRET = os.getenv('TWITTER_ACCESS_SECRET', 'your-twitter-access-secret')
+TWITTER_BEARER_TOKEN = os.getenv('TWITTER_BEARER_TOKEN', 'your-twitter-bearer-token')
 
 # Points Configuration
 POINTS_VOICE_PER_MINUTE = 1

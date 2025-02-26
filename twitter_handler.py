@@ -1,6 +1,9 @@
 import tweepy
 from config import *
 import logging
+import os
+import time
+import asyncio
 
 logger = logging.getLogger('EngagementBot')
 
@@ -8,108 +11,121 @@ class TwitterHandler:
     def __init__(self):
         try:
             logger.info("Initializing Twitter API...")
-            # Log keys presence (not their values)
+
+            bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
+            if not bearer_token:
+                logger.error("Bearer Token is missing")
+                raise ValueError("Bearer Token is required for Twitter API v2")
+
+            logger.info("Twitter Bearer Token is present")
             logger.info(f"Twitter API Key present: {bool(TWITTER_API_KEY)}")
             logger.info(f"Twitter API Secret present: {bool(TWITTER_API_SECRET)}")
-            logger.info(f"Twitter Access Token present: {bool(TWITTER_ACCESS_TOKEN)}")
-            logger.info(f"Twitter Access Secret present: {bool(TWITTER_ACCESS_SECRET)}")
 
+            # Initialize client for Twitter API v2 with rate limit handling
             self.client = tweepy.Client(
+                bearer_token=bearer_token,
                 consumer_key=TWITTER_API_KEY,
                 consumer_secret=TWITTER_API_SECRET,
-                access_token=TWITTER_ACCESS_TOKEN,
-                access_token_secret=TWITTER_ACCESS_SECRET
+                return_type=dict,
+                wait_on_rate_limit=True,
+                retry_count=3,
+                retry_delay=5,
+                retry_errors={400, 401, 403, 404, 429, 500, 502, 503, 504}
             )
+
+            if not self.client:
+                logger.error("Failed to initialize Twitter client")
+                raise Exception("Twitter client initialization failed")
+
+            # Test the connection
             self._test_connection()
-            logger.info("Twitter API connection successful")
-        except tweepy.errors.Unauthorized as e:
-            logger.error(f"Twitter API authentication failed: {e}")
-            logger.exception("Authentication error traceback:")
-            self.client = None
+            logger.info("Twitter API initialization successful")
+
         except Exception as e:
             logger.error(f"Error initializing Twitter API: {e}")
-            logger.exception("Full traceback:")
-            self.client = None
+            logger.exception("Full initialization error traceback:")
+            raise
+
+    async def _handle_rate_limit(self, operation, max_retries=3):
+        for attempt in range(max_retries):
+            try:
+                return await operation()
+            except tweepy.errors.TooManyRequests as e:
+                if attempt == max_retries - 1:
+                    raise
+                wait_time = int(e.response.headers.get('x-rate-limit-reset', 60))
+                logger.warning(f"Rate limit hit, waiting {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+            except Exception as e:
+                logger.error(f"Error during operation: {e}")
+                raise
 
     def _test_connection(self):
         try:
-            # Test with a simple API call
-            me = self.client.get_me()
-            if me.data:
-                logger.info(f"Twitter API connection test successful - Connected as @{me.data.username}")
+            logger.debug("Testing Twitter API connection...")
+            # Test API access with a simple query
+            response = self.client.get_user(username="Twitter")
+            if response and response.get('data'):
+                logger.info("Twitter API connection test successful")
             else:
-                logger.error("Twitter API connection test failed - Could not get user info")
-                raise Exception("Failed to get user info")
-        except tweepy.errors.Unauthorized as e:
-            logger.error(f"Twitter API authentication test failed: {e}")
-            logger.exception("Authentication test error traceback:")
-            raise
+                logger.error("Twitter API test failed - Could not get test user info")
+                raise Exception("Failed to get test user info")
         except Exception as e:
             logger.error(f"Twitter API connection test failed: {e}")
-            logger.exception("Full traceback:")
+            logger.exception("Full test connection traceback:")
             raise
 
     async def get_user_activity(self, username):
         if not self.client:
-            logger.error("Twitter API not initialized - check your API credentials")
-            raise ValueError("Configuration Twitter invalide. Veuillez contacter l'administrateur.")
+            logger.error("Twitter API not initialized")
+            raise ValueError("Configuration Twitter invalide")
 
-        try:
-            logger.info(f"Fetching Twitter activity for user {username}")
+        async def fetch_user():
+            return self.client.get_user(username=username)
 
-            # Get user ID first
-            user = self.client.get_user(username=username)
-            if not user.data:
-                raise tweepy.errors.NotFound()
-
-            user_id = user.data.id
-            logger.info(f"Found Twitter user {username} with ID {user_id}")
-
-            # Get recent tweets
-            tweets = self.client.get_users_tweets(
+        async def fetch_tweets(user_id):
+            return self.client.get_users_tweets(
                 user_id,
                 max_results=10,
                 tweet_fields=['public_metrics']
             )
 
-            if not tweets.data:
-                # User exists but has no tweets
-                logger.info(f"No tweets found for user {username}")
-                return {
-                    'likes': 0,
-                    'retweets': 0,
-                    'comments': 0
-                }
+        try:
+            logger.debug(f"Fetching Twitter activity for user {username}")
 
-            activity = {
-                'likes': 0,
-                'retweets': 0,
-                'comments': 0
-            }
+            # Get user ID with rate limit handling
+            user_response = await self._handle_rate_limit(fetch_user)
+            if not user_response or not user_response.get('data'):
+                raise tweepy.errors.NotFound()
 
-            for tweet in tweets.data:
-                metrics = tweet.public_metrics
+            user_id = user_response['data']['id']
+            logger.debug(f"Found Twitter user {username} with ID {user_id}")
+
+            # Get tweets with rate limit handling
+            tweets_response = await self._handle_rate_limit(lambda: fetch_tweets(user_id))
+
+            if not tweets_response or not tweets_response.get('data'):
+                logger.debug(f"No tweets found for user {username}")
+                return {'likes': 0, 'retweets': 0, 'comments': 0}
+
+            activity = {'likes': 0, 'retweets': 0, 'comments': 0}
+
+            for tweet in tweets_response['data']:
+                metrics = tweet['public_metrics']
                 activity['likes'] += metrics.get('like_count', 0)
                 activity['retweets'] += metrics.get('retweet_count', 0)
                 activity['comments'] += metrics.get('reply_count', 0)
 
-            logger.info(f"Successfully fetched activity for {username}: {activity}")
+            logger.debug(f"Successfully fetched activity for {username}: {activity}")
             return activity
 
         except tweepy.errors.NotFound:
-            logger.error(f"Twitter user {username} not found")
+            logger.warning(f"Twitter user {username} not found")
             raise ValueError(f"Le compte Twitter @{username} n'existe pas.")
-
         except tweepy.errors.Unauthorized:
-            logger.error(f"Unauthorized access to Twitter user {username}")
+            logger.warning(f"Unauthorized access to Twitter user {username}")
             raise ValueError(f"Le compte Twitter @{username} est privé ou inaccessible.")
-
-        except tweepy.errors.TweepyException as e:
-            logger.error(f"Tweepy error fetching Twitter activity for {username}: {e}")
-            logger.exception("Full traceback:")
-            raise ValueError("Une erreur est survenue lors de l'accès à Twitter. Réessayez plus tard.")
-
         except Exception as e:
-            logger.error(f"Unexpected error fetching Twitter activity: {e}")
+            logger.error(f"Error fetching Twitter activity: {e}")
             logger.exception("Full traceback:")
-            raise ValueError("Une erreur inattendue est survenue. Réessayez plus tard.")
+            raise ValueError("Une erreur est survenue. Réessayez plus tard.")
