@@ -15,6 +15,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger('EngagementBot')
 
+# Add Discord.py debug logging
+discord_logger = logging.getLogger('discord')
+discord_logger.setLevel(logging.DEBUG)
+
 class EngagementBot(commands.Bot):
     def __init__(self):
         logger.debug("Initializing EngagementBot...")
@@ -23,7 +27,7 @@ class EngagementBot(commands.Bot):
         intents.members = True
         intents.voice_states = True
         intents.guilds = True
-        intents.presences = True
+        # Removed intents.presences = True as it's not explicitly needed
 
         super().__init__(command_prefix='!', intents=intents)
 
@@ -141,39 +145,18 @@ class EngagementBot(commands.Bot):
     async def before_save_data(self):
         await self.wait_until_ready()
 
-    async def on_command_error(self, ctx, error):
-        if isinstance(error, commands.errors.CommandNotFound):
-            await ctx.send(f"Commande non trouvée. Utilisez !bothelp pour voir la liste des commandes.")
-        else:
-            logger.error(f"Command error: {error}")
-            logger.exception("Full command error traceback:")
-            await ctx.send(f"Une erreur s'est produite lors de l'exécution de la commande.")
-
-    async def on_voice_state_update(self, member, before, after):
-        if member.bot:
-            return
-
-        try:
-            if before.channel is None and after.channel is not None:
-                # User joined voice channel
-                self.db.start_voice_session(member.id)
-                logger.info(f"User {member.name} started voice session")
-
-            elif before.channel is not None and after.channel is None:
-                # User left voice channel
-                duration_minutes = self.db.end_voice_session(member.id) / 60
-                await self.point_system.award_voice_points(member.id, duration_minutes)
-                logger.info(f"User {member.name} ended voice session, duration: {duration_minutes} minutes")
-        except Exception as e:
-            logger.error(f"Error in voice state update: {e}")
-
-
 async def main():
     try:
         bot = EngagementBot()
+        logger.info("Starting bot...")
+        token = DISCORD_TOKEN
+        if not token:
+            logger.error("Discord token is missing!")
+            raise ValueError("Discord token is required")
+        logger.debug("Discord token is present")
+
         async with bot:
-            logger.info("Starting bot...")
-            await bot.start(DISCORD_TOKEN)
+            await bot.start(token)
     except Exception as e:
         logger.error(f"Error in main: {e}")
         logger.exception("Full main error traceback:")

@@ -13,33 +13,102 @@ class Commands(commands.Cog):
         self.twitter = twitter_handler
         logger.info("Commands cog initialized")
 
+    @commands.command(name='testtwitter')
+    async def test_twitter(self, ctx, twitter_username: str):
+        """Test Twitter API connection and data retrieval"""
+        try:
+            # Remove @ if present
+            twitter_username = twitter_username.lstrip('@')
+            logger.info(f"Testing Twitter API for username: {twitter_username}")
+
+            # Test user retrieval
+            user_response = self.twitter.client.get_user(username=twitter_username)
+            if user_response and user_response.get('data'):
+                await ctx.send(f"✅ Found Twitter user: @{user_response['data']['username']} (ID: {user_response['data']['id']})")
+                logger.info(f"Successfully found Twitter user: {user_response['data']}")
+
+                # Test tweets retrieval
+                tweets_response = self.twitter.client.get_users_tweets(
+                    user_response['data']['id'],
+                    max_results=10,
+                    tweet_fields=['public_metrics']
+                )
+
+                if tweets_response and tweets_response.get('data'):
+                    tweet_count = len(tweets_response['data'])
+                    await ctx.send(f"✅ Retrieved {tweet_count} tweets from user")
+                    # Log first tweet metrics for debugging
+                    if tweet_count > 0:
+                        metrics = tweets_response['data'][0]['public_metrics']
+                        logger.info(f"First tweet metrics: {metrics}")
+                        await ctx.send(f"Sample tweet metrics: {metrics}")
+                else:
+                    await ctx.send("❌ No tweets found for this user")
+            else:
+                await ctx.send("❌ Could not find Twitter user")
+
+        except Exception as e:
+            logger.error(f"Error in test_twitter command: {e}")
+            logger.exception("Full traceback:")
+            await ctx.send(f"❌ Error testing Twitter API: {str(e)}")
+
+    @commands.command(name='bothelp')
+    async def bothelp_command(self, ctx):
+        """Show available commands and their usage"""
+        logger.info(f"Help command received from {ctx.author}")
+        embed = discord.Embed(
+            title="Bot Commands",
+            description="Here are all available commands:",
+            color=discord.Color.blue()
+        )
+
+        commands_list = {
+            "!points": "Check your current points",
+            "!leaderboard": "View the top 10 users",
+            "!rob @user": "Try to steal points from another user",
+            "!linktwitter @username": "Link your Twitter account",
+            "!twitterpoints": "Check your Twitter engagement points",
+            "!bothelp": "Show this help message",
+            "!testtwitter @username": "Test Twitter API connection"
+        }
+
+        for cmd, desc in commands_list.items():
+            embed.add_field(name=cmd, value=desc, inline=False)
+
+        await ctx.send(embed=embed)
+
     @commands.command(name='points')
     async def check_points(self, ctx):
         """Check your current points"""
-        logger.info(f"Points command received from {ctx.author}")
-        points = self.points.db.get_user_points(ctx.author.id)
-        await ctx.send(f"{ctx.author.mention}, you have {points} points!")
+        try:
+            points = self.points.db.get_user_points(ctx.author.id)
+            await ctx.send(f"{ctx.author.mention}, you have {points} points!")
+        except Exception as e:
+            logger.error(f"Error checking points: {e}")
+            await ctx.send("An error occurred while checking your points.")
 
     @commands.command(name='leaderboard')
     async def show_leaderboard(self, ctx):
         """Display the points leaderboard"""
-        logger.info(f"Leaderboard command received from {ctx.author}")
-        leaderboard = self.points.db.get_leaderboard()
+        try:
+            leaderboard = self.points.db.get_leaderboard()
+            embed = discord.Embed(title="Points Leaderboard", color=discord.Color.gold())
 
-        embed = discord.Embed(title="Points Leaderboard", color=discord.Color.gold())
+            for i, (user_id, data) in enumerate(leaderboard[:10], 1):
+                try:
+                    user = await self.bot.fetch_user(int(user_id))
+                    embed.add_field(
+                        name=f"{i}. {user.name}",
+                        value=f"{data['points']} points",
+                        inline=False
+                    )
+                except:
+                    continue
 
-        for i, (user_id, data) in enumerate(leaderboard[:10], 1):
-            try:
-                user = await self.bot.fetch_user(int(user_id))
-                embed.add_field(
-                    name=f"{i}. {user.name}",
-                    value=f"{data['points']} points",
-                    inline=False
-                )
-            except:
-                continue
-
-        await ctx.send(embed=embed)
+            await ctx.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error showing leaderboard: {e}")
+            await ctx.send("An error occurred while fetching the leaderboard.")
 
     @commands.command(name='rob')
     async def rob_user(self, ctx, victim: discord.Member):
@@ -105,73 +174,3 @@ class Commands(commands.Cog):
         except Exception as e:
             await ctx.send(f"{ctx.author.mention}, une erreur est survenue lors de la récupération de vos points Twitter.")
             logger.error(f"Error fetching Twitter points: {e}")
-
-    @commands.command(name='bothelp')
-    async def bothelp_command(self, ctx):
-        """Show available commands and their usage"""
-        logger.info(f"Help command received from {ctx.author}")
-        embed = discord.Embed(
-            title="Bot Commands",
-            description="Here are all available commands:",
-            color=discord.Color.blue()
-        )
-
-        commands_list = {
-            "!points": "Check your current points",
-            "!leaderboard": "View the top 10 users",
-            "!rob @user": "Try to steal points from another user",
-            "!linktwitter @username": "Link your Twitter account",
-            "!twitterpoints": "Check your Twitter engagement points",
-            "!bothelp": "Show this help message",
-            "!testtwitter @username": "Test Twitter API connection"
-        }
-
-        for cmd, desc in commands_list.items():
-            embed.add_field(name=cmd, value=desc, inline=False)
-
-        await ctx.send(embed=embed)
-
-    @commands.command(name='testtwitter')
-    async def test_twitter(self, ctx, twitter_username: str):
-        """Test Twitter API connection and data retrieval"""
-        try:
-            # Remove @ if present
-            twitter_username = twitter_username.lstrip('@')
-            logger.info(f"Testing Twitter API for username: {twitter_username}")
-
-            # Test user retrieval
-            user = self.twitter.client.get_user(username=twitter_username)
-            if user and user.data:
-                await ctx.send(f"✅ Found Twitter user: @{user.data.username} (ID: {user.data.id})")
-                logger.info(f"Successfully found Twitter user: {user.data}")
-
-                # Test tweets retrieval
-                tweets = self.twitter.client.get_users_tweets(
-                    user.data.id,
-                    max_results=10,
-                    tweet_fields=['public_metrics']
-                )
-
-                if tweets and tweets.data:
-                    tweet_count = len(tweets.data)
-                    await ctx.send(f"✅ Retrieved {tweet_count} tweets from user")
-                    # Log first tweet metrics for debugging
-                    if tweet_count > 0:
-                        metrics = tweets.data[0].public_metrics
-                        logger.info(f"First tweet metrics: {metrics}")
-                        await ctx.send(f"Sample tweet metrics: {metrics}")
-                else:
-                    await ctx.send("❌ No tweets found for this user")
-            else:
-                await ctx.send("❌ Could not find Twitter user")
-
-        except tweepy.errors.Unauthorized as e:
-            logger.error(f"Twitter API authentication error: {e}")
-            await ctx.send("❌ Twitter API authentication failed")
-        except tweepy.errors.NotFound as e:
-            logger.error(f"Twitter user not found: {e}")
-            await ctx.send(f"❌ Twitter user @{twitter_username} not found")
-        except Exception as e:
-            logger.error(f"Error in test_twitter command: {e}")
-            logger.exception("Full traceback:")
-            await ctx.send(f"❌ Error testing Twitter API: {str(e)}")
