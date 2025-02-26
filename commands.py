@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import logging
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
+from config import TWITTER_BEARER_TOKEN  # Import the token from config
 
 logger = logging.getLogger('EngagementBot')
 
@@ -28,7 +29,7 @@ class Commands(commands.Cog):
             twitter_username = twitter_username.lstrip('@')
             logger.info(f"Attempting to link Twitter account {twitter_username} for {ctx.author.id}")
 
-            # Verify if Twitter account exists
+            # Verify if Twitter account exists using the twitter_handler
             try:
                 exists, twitter_id = await self.twitter.verify_account(twitter_username)
 
@@ -37,7 +38,7 @@ class Commands(commands.Cog):
                     self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
                     await ctx.send(f"✅ Votre compte Discord est maintenant lié à Twitter @{twitter_username}")
                 else:
-                    await ctx.send("❌ Ce compte Twitter n'existe pas. Vérifiez que le nom d'utilisateur est correct et réessayez.")
+                    await ctx.send("❌ Ce compte Twitter n'existe pas. Vérifiez que le nom d'utilisateur est correct.")
 
             except TooManyRequests:
                 await ctx.send("⏳ L'API Twitter est temporairement indisponible. Veuillez réessayer dans quelques minutes.")
@@ -46,11 +47,11 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Erreur d'authentification avec l'API Twitter. Un administrateur a été notifié.")
             except Exception as e:
                 logger.error(f"Error in account verification: {str(e)}")
-                await ctx.send("❌ Une erreur s'est produite lors de la vérification du compte Twitter. Veuillez réessayer plus tard.")
+                await ctx.send("❌ Une erreur s'est produite lors de la vérification du compte Twitter.")
 
         except Exception as e:
             logger.error(f"Error in link_twitter command: {str(e)}")
-            await ctx.send("❌ Une erreur inattendue s'est produite. Veuillez réessayer plus tard.")
+            await ctx.send("❌ Une erreur inattendue s'est produite.")
 
     @commands.command(name='twitterstats')
     async def twitter_stats(self, ctx):
@@ -58,32 +59,40 @@ class Commands(commands.Cog):
         try:
             twitter_username = self.points.db.get_twitter_username(str(ctx.author.id))
             if not twitter_username:
-                await ctx.send("❌ Votre compte Discord n'est pas lié à Twitter. Utilisez !linktwitter pour le lier.")
+                await ctx.send("❌ Votre compte Discord n'est pas lié à Twitter. Utilisez `!linktwitter` pour le lier.")
                 return
 
-            exists, twitter_id = await self.twitter.verify_account(twitter_username)
-            if not exists:
-                await ctx.send("❌ Votre compte Twitter lié n'est plus accessible.")
-                return
+            # Get user stats using the twitter_handler
+            try:
+                exists, twitter_id = await self.twitter.verify_account(twitter_username)
+                if not exists:
+                    await ctx.send("❌ Votre compte Twitter lié n'est plus accessible.")
+                    return
 
-            stats = await self.twitter.get_user_stats(twitter_id)
-            if 'error' in stats:
-                if 'rate limit' in stats['error'].lower():
-                    await ctx.send("⏳ L'API Twitter est temporairement indisponible. Veuillez réessayer dans quelques minutes.")
+                stats = await self.twitter.get_user_stats(twitter_id)
+                if stats:
+                    embed = discord.Embed(
+                        title=f"Statistiques Twitter pour @{twitter_username}",
+                        color=discord.Color.blue()
+                    )
+                    embed.add_field(name="👍 Likes", value=str(stats.get('likes', 0)), inline=True)
+                    embed.add_field(name="🔄 Dernière mise à jour", value="À l'instant", inline=True)
+                    await ctx.send(embed=embed)
                 else:
-                    await ctx.send(f"❌ Erreur lors de la récupération des stats: {stats['error']}")
-                return
+                    await ctx.send("📊 Aucune statistique disponible pour le moment.")
 
-            embed = discord.Embed(
-                title=f"Statistiques Twitter pour @{twitter_username}",
-                color=discord.Color.blue()
-            )
-            embed.add_field(name="👍 Likes", value=str(stats['likes']), inline=True)
-            await ctx.send(embed=embed)
+            except TooManyRequests:
+                await ctx.send("⏳ L'API Twitter est temporairement indisponible. Veuillez réessayer dans quelques minutes.")
+            except Unauthorized:
+                logger.error("Twitter API authentication failed")
+                await ctx.send("❌ Erreur d'authentification avec l'API Twitter. Un administrateur a été notifié.")
+            except Exception as e:
+                logger.error(f"Error getting Twitter stats: {str(e)}")
+                await ctx.send("❌ Une erreur s'est produite lors de la récupération des statistiques.")
 
         except Exception as e:
-            logger.error(f"Error in twitterstats command: {str(e)}")
-            await ctx.send("❌ Une erreur s'est produite lors de la récupération de vos stats Twitter.")
+            logger.error(f"Error in twitter_stats command: {str(e)}")
+            await ctx.send("❌ Une erreur inattendue s'est produite.")
 
     @commands.command(name='bothelp')
     async def bothelp_command(self, ctx):
@@ -95,7 +104,6 @@ class Commands(commands.Cog):
         )
 
         commands_list = {
-            "!ping": "Vérifier si le bot répond",
             "!linktwitter": "Lier votre compte Twitter",
             "!twitterstats": "Voir vos statistiques Twitter",
             "!bothelp": "Afficher ce message d'aide"
