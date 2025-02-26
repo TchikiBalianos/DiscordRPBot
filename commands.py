@@ -65,7 +65,19 @@ class Commands(commands.Cog):
         self.points = point_system
         self.twitter = twitter_handler
         logger.info("Commands cog initialized")
-        self.lottery_task.start()
+
+    @commands.command(name='ping')
+    async def ping_command(self, ctx):
+        """Simple command to test if the bot is responding"""
+        try:
+            logger.info(f"Ping command started by {ctx.author}")
+            logger.info(f"Channel: {ctx.channel.name}")
+            logger.info(f"Guild: {ctx.guild.name}")
+            await ctx.send('Pong! ✅')
+            logger.info(f"Ping command completed successfully")
+        except Exception as e:
+            logger.error(f"Error in ping command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -139,16 +151,6 @@ class Commands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in free_prison command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
-
-    @commands.command(name='ping')
-    async def ping_command(self, ctx):
-        """Simple command to test if the bot is responding"""
-        try:
-            await ctx.send('Pong!')
-            logger.info(f"Ping command executed by {ctx.author}")
-        except Exception as e:
-            logger.error(f"Error in ping command: {e}")
-            await ctx.send("Une erreur s'est produite.")
 
     @commands.command(name='linktwitter')
     async def link_twitter(self, ctx, twitter_username: str = None):
@@ -750,7 +752,7 @@ class Commands(commands.Cog):
 
             success, message = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
             if success:
-                combat_msg= await ctx.send(message)
+                combat_msg = await ctx.send(message)
                 for move in COMBAT_MOVES:
                     await combat_msg.add_reaction(move)
             else:
