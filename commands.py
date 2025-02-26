@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 import logging
-import tweepy
 
 logger = logging.getLogger('EngagementBot')
 
@@ -35,17 +34,13 @@ class Commands(commands.Cog):
             return
 
         try:
-            # Send initial status message
-            status_message = await ctx.send("🔄 Verifying Twitter account...")
-
             exists, twitter_id = await self.twitter.verify_account(twitter_username)
             if not exists:
-                await status_message.edit(content="❌ This Twitter account doesn't exist.")
+                await ctx.send("❌ This Twitter account doesn't exist.")
                 return
 
             self.points.db.link_twitter_account(str(ctx.author.id), twitter_username)
-            await status_message.edit(content=f"✅ Your Discord account is now linked to Twitter @{twitter_username}")
-
+            await ctx.send(f"✅ Your Discord account is now linked to Twitter @{twitter_username}")
         except Exception as e:
             logger.error(f"Error linking Twitter: {e}")
             await ctx.send("❌ An error occurred while linking your Twitter account.")
@@ -53,44 +48,32 @@ class Commands(commands.Cog):
     @commands.command(name='twitterstats')
     async def twitter_stats(self, ctx):
         """Check your Twitter statistics"""
-        try:
-            # Initial status message
-            status_message = await ctx.send("🔄 Fetching your Twitter stats...")
+        twitter_username = self.points.db.get_twitter_username(str(ctx.author.id))
+        if not twitter_username:
+            await ctx.send("❌ Your Discord account is not linked to Twitter. Use !linktwitter to link it.")
+            return
 
-            # Get Twitter username
-            twitter_username = self.points.db.get_twitter_username(str(ctx.author.id))
-            if not twitter_username:
-                await status_message.edit(content="❌ Your Discord account is not linked to Twitter. Use !linktwitter to link it.")
-                return
+        exists, twitter_id = await self.twitter.verify_account(twitter_username)
+        if not exists:
+            await ctx.send("❌ Your linked Twitter account no longer exists.")
+            return
 
-            # Verify account
-            exists, twitter_id = await self.twitter.verify_account(twitter_username)
-            if not exists:
-                await status_message.edit(content="❌ Your linked Twitter account could not be verified.")
-                return
+        stats = await self.twitter.get_user_stats(twitter_id)
+        if 'error' in stats:
+            await ctx.send(f"❌ Error getting Twitter stats: {stats['error']}")
+            return
 
-            # Get stats
-            stats = await self.twitter.get_user_stats(twitter_id)
-            if 'error' in stats:
-                await status_message.edit(content=f"❌ Error getting Twitter stats: {stats['error']}")
-                return
+        embed = discord.Embed(
+            title=f"Twitter Stats for @{twitter_username}",
+            color=discord.Color.blue()
+        )
 
-            # Create and send embed
-            embed = discord.Embed(
-                title=f"Twitter Stats for @{twitter_username}",
-                color=discord.Color.blue()
-            )
-
-            embed.add_field(name="👍 Likes", value=str(stats['likes']), inline=True)
-            await status_message.edit(content=None, embed=embed)
-
-        except Exception as e:
-            logger.error(f"Error in twitter_stats command: {e}")
-            await ctx.send("❌ An error occurred while fetching Twitter stats.")
+        embed.add_field(name="👍 Likes", value=str(stats['likes']), inline=True)
+        await ctx.send(embed=embed)
 
     @commands.command(name='bothelp')
     async def bothelp_command(self, ctx):
-        """Show available commands and their usage"""
+        """Show all available commands"""
         try:
             embed = discord.Embed(
                 title="Bot Commands",
