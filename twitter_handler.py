@@ -54,16 +54,21 @@ class TwitterHandler:
         try:
             username = username.lstrip('@').lower().strip()
             logger.info(f"Starting verification for Twitter account: @{username}")
+            logger.debug(f"Checking Twitter API credentials before verification...")
 
             try:
+                logger.info(f"Making API request to verify account: @{username}")
                 response = self.client.get_users(
                     usernames=[username],
                     user_fields=['id', 'username', 'public_metrics']
                 )
 
+                logger.debug(f"Raw API Response: {response}")
+
                 if response and hasattr(response, 'data') and response.data:
                     user = response.data[0]
                     logger.info(f"✅ Successfully found Twitter account: @{username}")
+                    logger.debug(f"User metrics: {user.public_metrics}")
                     return True, user.id, user.public_metrics
                 else:
                     logger.warning(f"❌ No data returned for @{username}")
@@ -71,16 +76,18 @@ class TwitterHandler:
 
             except TooManyRequests as e:
                 logger.warning(f"Rate limit reached for Twitter API, will retry in {e.retry_after} seconds")
-                # Sleep for the required time and retry once
                 time.sleep(e.retry_after if hasattr(e, 'retry_after') else 60)
-                response = self.client.get_users(
-                    usernames=[username],
-                    user_fields=['id', 'username', 'public_metrics']
-                )
-                if response and hasattr(response, 'data') and response.data:
-                    user = response.data[0]
-                    logger.info(f"✅ Successfully found Twitter account after retry: @{username}")
-                    return True, user.id, user.public_metrics
+                try:
+                    response = self.client.get_users(
+                        usernames=[username],
+                        user_fields=['id', 'username', 'public_metrics']
+                    )
+                    if response and hasattr(response, 'data') and response.data:
+                        user = response.data[0]
+                        logger.info(f"✅ Successfully found Twitter account after retry: @{username}")
+                        return True, user.id, user.public_metrics
+                except Exception as retry_error:
+                    logger.error(f"Error during retry: {str(retry_error)}")
                 return False, None, None
 
             except Unauthorized as e:
@@ -88,7 +95,7 @@ class TwitterHandler:
                 raise
 
         except Exception as e:
-            logger.error(f"Error in verify_account: {str(e)}")
+            logger.error(f"Error in verify_account: {str(e)}", exc_info=True)
             return False, None, None
 
     async def get_user_stats(self, twitter_id: str):

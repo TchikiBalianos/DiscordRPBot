@@ -207,10 +207,10 @@ class Commands(commands.Cog):
             await ctx.send(f"🔍 Test de connexion à Twitter pour le compte @{twitter_username}...")
 
             try:
-                exists, twitter_id = await self.twitter.verify_account(twitter_username)
+                exists, twitter_id, metrics = await self.twitter.verify_account(twitter_username)
 
                 if exists and twitter_id:
-                    await ctx.send(f"✅ Compte Twitter trouvé! ID: {twitter_id}")
+                    await ctx.send(f"✅ Compte Twitter trouvé! ID: {twitter_id}\nMétriques: {metrics}")
                 else:
                     await ctx.send(f"❌ Le compte Twitter @{twitter_username} n'a pas été trouvé.")
 
@@ -406,7 +406,8 @@ class Commands(commands.Cog):
                 },
                 "🐦 Twitter": {
                     "!linktwitter": "Lier ton compte Twitter",
-                    "!twitterstats": "Voir tes stats Twitter"
+                    "!twitterstats": "Voir tes stats Twitter",
+                    "!testtwitter": "Tester la connexion Twitter"
                 }
             }
 
