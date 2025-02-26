@@ -31,6 +31,11 @@ def test_twitter_connection():
 
     except tweepy.errors.Unauthorized as e:
         logger.error(f"Authentication failed: {e}")
+        logger.error("Please verify in Twitter Developer Portal:")
+        logger.error("1. App permissions are set to Read and Write")
+        logger.error("2. OAuth 1.0a is enabled")
+        logger.error("3. The tokens belong to the correct app")
+        logger.error("4. The tokens are from the same app/project")
         return False
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
