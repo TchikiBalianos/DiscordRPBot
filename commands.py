@@ -68,9 +68,15 @@ class Commands(commands.Cog):
             # Link the accounts
             self.points.db.link_twitter_account(ctx.author.id, twitter_username)
             await ctx.send(f"{ctx.author.mention}, votre compte Discord est maintenant lié à Twitter @{twitter_username}!")
+            logger.info(f"Successfully linked Twitter account {twitter_username} to Discord user {ctx.author}")
+
+        except ValueError as e:
+            await ctx.send(f"{ctx.author.mention}, {str(e)}")
+            logger.warning(f"Failed to link Twitter account: {e}")
         except Exception as e:
             await ctx.send(f"{ctx.author.mention}, une erreur est survenue lors de la liaison avec Twitter. Réessayez plus tard.")
             logger.error(f"Error linking Twitter account: {e}")
+            logger.exception("Full traceback:")
 
     @commands.command(name='twitterpoints')
     async def twitter_points(self, ctx):
