@@ -39,9 +39,13 @@ class EngagementBot(commands.Bot):
         try:
             logger.info("Loading Commands cog...")
             from commands import Commands
-            await self.add_cog(Commands(self, self.point_system, self.twitter_handler))
+            commands_cog = Commands(self, self.point_system, self.twitter_handler)
+            await self.add_cog(commands_cog)
+            # Log all commands after loading the cog
             logger.info("Commands cog loaded successfully")
-            logger.info(f"Available commands: {[c.name for c in self.commands]}")
+            all_commands = [c.name for c in self.commands]
+            logger.info(f"Available commands: {all_commands}")
+            logger.info(f"Total number of commands: {len(all_commands)}")
         except Exception as e:
             logger.error(f"Failed to load Commands cog: {e}", exc_info=True)
             raise
@@ -52,6 +56,9 @@ class EngagementBot(commands.Bot):
             logger.info(f'Bot is ready! Logged in as {self.user.name} (ID: {self.user.id})')
             for guild in self.guilds:
                 logger.info(f"Connected to guild: {guild.name} (ID: {guild.id})")
+
+            # Log available commands again after bot is ready
+            logger.info(f"Commands available after ready: {[c.name for c in self.commands]}")
         except Exception as e:
             logger.error(f"Error in on_ready: {e}", exc_info=True)
 
