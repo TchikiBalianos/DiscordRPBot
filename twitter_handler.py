@@ -80,7 +80,10 @@ class TwitterHandler:
                 }
             except Exception as e:
                 logger.error(f"Error fetching user info: {e}", exc_info=True)
-                return None
+                return {
+                    'error': 'unknown',
+                    'message': f"Une erreur s'est produite en accédant à Twitter: {str(e)}"
+                }
 
             if not user_response or not user_response.data:
                 logger.warning(f"User not found: {username}")

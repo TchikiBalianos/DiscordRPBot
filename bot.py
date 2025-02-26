@@ -45,10 +45,11 @@ class CommandsCog(commands.Cog):
     @commands.command(name='linktwitter')
     async def link_twitter(self, ctx, twitter_username: str):
         """Link your Discord account to your Twitter account"""
-        logger.info(f"Link Twitter command received from {ctx.author} for username {twitter_username}")
         try:
             # Remove @ if present
             twitter_username = twitter_username.lstrip('@')
+
+            await ctx.send(f"🔄 Tentative de liaison avec le compte Twitter @{twitter_username}...")
 
             # Verify that the Twitter account exists
             logger.info(f"Attempting to get user activity for {twitter_username}")
