@@ -54,6 +54,13 @@ class EngagementBot(commands.Bot):
         logger.info(f'Connected to {len(self.guilds)} guilds:')
         for guild in self.guilds:
             logger.info(f'- {guild.name} (ID: {guild.id})')
+            # Log les permissions du bot dans chaque serveur
+            for channel in guild.text_channels:
+                permissions = channel.permissions_for(guild.me)
+                logger.info(f'  Channel {channel.name}: '
+                          f'read_messages={permissions.read_messages}, '
+                          f'send_messages={permissions.send_messages}, '
+                          f'embed_links={permissions.embed_links}')
 
         # Verify command registration
         logger.debug(f"Available commands: {[command.name for command in self.commands]}")
@@ -69,17 +76,38 @@ class EngagementBot(commands.Bot):
             return
 
         try:
-            logger.debug(f"Message received: content='{message.content}' author={message.author}")
+            # Log détaillé du message reçu
+            logger.debug(f"Message reçu - Contenu: '{message.content}' | "
+                        f"Auteur: {message.author} | "
+                        f"Canal: {message.channel} | "
+                        f"Serveur: {message.guild}")
 
+            # Vérifie si c'est une commande
             if message.content.startswith(self.command_prefix):
-                logger.debug(f"Processing command: {message.content}")
+                logger.debug(f"Commande détectée: {message.content}")
+                logger.debug(f"Commandes disponibles: {[c.name for c in self.commands]}")
+                # Process the command
                 await self.process_commands(message)
+                logger.debug("Commande traitée")
             else:
+                # Only award points for non-command messages
                 await self.point_system.award_message_points(message.author.id)
+                logger.debug("Points attribués pour le message")
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}")
-            logger.exception("Full message processing traceback:")
+            logger.error(f"Erreur dans on_message: {e}")
+            logger.exception("Traceback complet:")
+
+    async def on_command_error(self, ctx, error):
+        """Gestion des erreurs de commande"""
+        if isinstance(error, commands.errors.CommandNotFound):
+            logger.warning(f"Commande non trouvée: {ctx.message.content}")
+            await ctx.send(f"Commande non trouvée. Utilisez !bothelp pour voir la liste des commandes.")
+        else:
+            logger.error(f"Erreur de commande: {error}")
+            logger.exception("Traceback complet de l'erreur:")
+            await ctx.send(f"Une erreur s'est produite lors de l'exécution de la commande.")
+
 
     @tasks.loop(minutes=5)
     async def save_data_loop(self):

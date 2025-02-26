@@ -14,18 +14,24 @@ class Commands(commands.Cog):
         logger.info("Commands cog initialized")
 
     @commands.command(name='testtwitter')
-    async def test_twitter(self, ctx, twitter_username: str):
+    async def test_twitter(self, ctx, twitter_username: str = None):
         """Test Twitter API connection and data retrieval"""
+        logger.debug(f"Commande testtwitter reçue de {ctx.author}")
+
+        if twitter_username is None:
+            await ctx.send("❌ Veuillez spécifier un nom d'utilisateur Twitter. Exemple: !testtwitter X")
+            return
+
         try:
             # Remove @ if present
             twitter_username = twitter_username.lstrip('@')
-            logger.info(f"Testing Twitter API for username: {twitter_username}")
+            logger.info(f"Test de l'API Twitter pour l'utilisateur: {twitter_username}")
 
             # Test user retrieval
             user_response = self.twitter.client.get_user(username=twitter_username)
             if user_response and user_response.get('data'):
-                await ctx.send(f"✅ Found Twitter user: @{user_response['data']['username']} (ID: {user_response['data']['id']})")
-                logger.info(f"Successfully found Twitter user: {user_response['data']}")
+                await ctx.send(f"✅ Utilisateur Twitter trouvé: @{user_response['data']['username']} (ID: {user_response['data']['id']})")
+                logger.info(f"Utilisateur Twitter trouvé: {user_response['data']}")
 
                 # Test tweets retrieval
                 tweets_response = self.twitter.client.get_users_tweets(
@@ -36,46 +42,51 @@ class Commands(commands.Cog):
 
                 if tweets_response and tweets_response.get('data'):
                     tweet_count = len(tweets_response['data'])
-                    await ctx.send(f"✅ Retrieved {tweet_count} tweets from user")
-                    # Log first tweet metrics for debugging
+                    await ctx.send(f"✅ {tweet_count} tweets récupérés")
                     if tweet_count > 0:
                         metrics = tweets_response['data'][0]['public_metrics']
-                        logger.info(f"First tweet metrics: {metrics}")
-                        await ctx.send(f"Sample tweet metrics: {metrics}")
+                        logger.info(f"Métriques du premier tweet: {metrics}")
+                        await ctx.send(f"Exemple de métriques: {metrics}")
                 else:
-                    await ctx.send("❌ No tweets found for this user")
+                    await ctx.send("❌ Aucun tweet trouvé pour cet utilisateur")
             else:
-                await ctx.send("❌ Could not find Twitter user")
+                await ctx.send("❌ Utilisateur Twitter non trouvé")
 
         except Exception as e:
-            logger.error(f"Error in test_twitter command: {e}")
-            logger.exception("Full traceback:")
-            await ctx.send(f"❌ Error testing Twitter API: {str(e)}")
+            logger.error(f"Erreur dans la commande testtwitter: {e}")
+            logger.exception("Traceback complet:")
+            await ctx.send(f"❌ Erreur lors du test de l'API Twitter: {str(e)}")
 
     @commands.command(name='bothelp')
     async def bothelp_command(self, ctx):
         """Show available commands and their usage"""
-        logger.info(f"Help command received from {ctx.author}")
-        embed = discord.Embed(
-            title="Bot Commands",
-            description="Here are all available commands:",
-            color=discord.Color.blue()
-        )
+        logger.debug(f"Commande bothelp reçue de {ctx.author}")
+        try:
+            embed = discord.Embed(
+                title="Commandes du Bot",
+                description="Voici toutes les commandes disponibles :",
+                color=discord.Color.blue()
+            )
 
-        commands_list = {
-            "!points": "Check your current points",
-            "!leaderboard": "View the top 10 users",
-            "!rob @user": "Try to steal points from another user",
-            "!linktwitter @username": "Link your Twitter account",
-            "!twitterpoints": "Check your Twitter engagement points",
-            "!bothelp": "Show this help message",
-            "!testtwitter @username": "Test Twitter API connection"
-        }
+            commands_list = {
+                "!points": "Voir vos points actuels",
+                "!leaderboard": "Voir le top 10 des utilisateurs",
+                "!rob @user": "Essayer de voler des points à un autre utilisateur",
+                "!linktwitter @username": "Lier votre compte Twitter",
+                "!twitterpoints": "Voir vos points d'engagement Twitter",
+                "!bothelp": "Afficher ce message d'aide",
+                "!testtwitter @username": "Tester la connexion à l'API Twitter"
+            }
 
-        for cmd, desc in commands_list.items():
-            embed.add_field(name=cmd, value=desc, inline=False)
+            for cmd, desc in commands_list.items():
+                embed.add_field(name=cmd, value=desc, inline=False)
 
-        await ctx.send(embed=embed)
+            await ctx.send(embed=embed)
+            logger.debug("Message d'aide envoyé avec succès")
+        except Exception as e:
+            logger.error(f"Erreur dans la commande bothelp: {e}")
+            logger.exception("Traceback complet:")
+            await ctx.send("Une erreur s'est produite lors de l'affichage de l'aide.")
 
     @commands.command(name='points')
     async def check_points(self, ctx):

@@ -45,8 +45,8 @@ class TwitterHandler:
     def _test_connection(self):
         try:
             logger.debug("Testing Twitter API connection...")
-            # Test API access with a simple query
-            response = self.client.get_user(username="Twitter")
+            # Test API access with a simple query - using @X instead of @Twitter
+            response = self.client.get_user(username="X")
             if response and response.get('data'):
                 logger.info("Twitter API connection test successful")
             else:
