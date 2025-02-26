@@ -30,7 +30,7 @@ class Commands(commands.Cog):
             # Vérifier si le compte Twitter existe
             exists, twitter_id = await self.twitter.verify_account(twitter_username)
             if not exists:
-                await ctx.send("❌ Ce compte Twitter n'existe pas ou n'est pas accessible.")
+                await ctx.send("❌ Ce compte Twitter n'existe pas ou n'est pas accessible. Si vous venez d'essayer, attendez quelques minutes en raison des limites de l'API Twitter.")
                 return
 
             # Lier le compte
@@ -39,7 +39,10 @@ class Commands(commands.Cog):
 
         except Exception as e:
             logger.error(f"Erreur lors de la liaison Twitter: {e}")
-            await ctx.send("❌ Une erreur s'est produite lors de la liaison de votre compte Twitter. Veuillez réessayer plus tard.")
+            if "rate limit" in str(e).lower():
+                await ctx.send("❌ Le nombre de requêtes Twitter est trop élevé actuellement. Veuillez réessayer dans quelques minutes.")
+            else:
+                await ctx.send("❌ Une erreur s'est produite lors de la liaison de votre compte Twitter. Veuillez réessayer plus tard.")
 
     @commands.command(name='twitterstats')
     async def twitter_stats(self, ctx):

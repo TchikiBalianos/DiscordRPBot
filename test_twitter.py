@@ -1,6 +1,7 @@
 import tweepy
 from config import *
 import logging
+from tweepy.errors import TooManyRequests, NotFound, Unauthorized
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('TwitterTest')
@@ -9,34 +10,53 @@ def test_twitter_connection():
     try:
         logger.info("Testing Twitter API connection...")
         logger.info(f"Bearer Token present: {bool(TWITTER_BEARER_TOKEN)}")
+        logger.info(f"API Key present: {bool(TWITTER_API_KEY)}")
+        logger.info(f"API Secret present: {bool(TWITTER_API_SECRET)}")
+        logger.info(f"Access Token present: {bool(TWITTER_ACCESS_TOKEN)}")
+        logger.info(f"Access Secret present: {bool(TWITTER_ACCESS_SECRET)}")
 
-        if not TWITTER_BEARER_TOKEN:
-            logger.error("Bearer Token is missing")
-            return False
-
+        # Initialize with both OAuth 2.0 Bearer Token and OAuth 1.0a credentials
         client = tweepy.Client(
             bearer_token=TWITTER_BEARER_TOKEN,
+            consumer_key=TWITTER_API_KEY,
+            consumer_secret=TWITTER_API_SECRET,
+            access_token=TWITTER_ACCESS_TOKEN,
+            access_token_secret=TWITTER_ACCESS_SECRET,
             wait_on_rate_limit=True
         )
 
-        # Test the connection with get_me()
-        response = client.get_user(username="X")
-        if response and response.data:
-            logger.info(f"Successfully retrieved user info for @X")
-            return True
-        else:
-            logger.error("Could not get user information")
+        try:
+            # Test user lookup with a known account
+            test_user = "Twitter"
+            logger.info(f"Testing user lookup with @{test_user}")
+            response = client.get_user(username=test_user)
+
+            if response and response.data:
+                logger.info(f"Successfully retrieved user info for @{test_user}")
+
+                # Test getting tweets
+                tweets = client.get_users_tweets(
+                    id=response.data.id,
+                    max_results=5,
+                    tweet_fields=['public_metrics']
+                )
+                logger.info(f"Successfully retrieved tweets for @{test_user}")
+
+                return True
+            else:
+                logger.error("Could not get user information")
+                return False
+
+        except Unauthorized as e:
+            logger.error(f"Authentication failed: {e}")
+            logger.error("Please verify your Twitter API credentials and permissions")
+            return False
+        except Exception as e:
+            logger.error(f"Error testing connection: {e}")
             return False
 
-    except tweepy.errors.Unauthorized as e:
-        logger.error(f"Authentication failed: {e}")
-        logger.error("Please verify in Twitter Developer Portal:")
-        logger.error("1. Your Bearer Token is valid")
-        logger.error("2. Your app has User.Read permission")
-        logger.error("3. The Bearer Token hasn't expired")
-        return False
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error in test_twitter_connection: {e}")
         return False
 
 if __name__ == "__main__":
