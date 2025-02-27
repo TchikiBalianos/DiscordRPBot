@@ -32,7 +32,7 @@ class Commands(commands.Cog):
 
     def __init__(self, bot, point_system, twitter_handler):
         """Initialize the Commands cog"""
-        super().__init__()
+        super().__init__()  # Important: Call the parent class's __init__
         self.bot = bot
         self.points = point_system
         self.twitter = twitter_handler
@@ -40,9 +40,38 @@ class Commands(commands.Cog):
         # Log all commands that will be registered
         logger.info(f"Commands being registered: {[method for method in dir(self) if method.endswith('_command')]}")
 
-    async def cog_check(self, ctx):
-        """Global check for all commands in this cog"""
-        return ctx.guild is not None
+    @commands.command(name='debug')
+    @is_staff()
+    async def debug_command(self, ctx):
+        """[STAFF] Debug command to check registered commands"""
+        try:
+            # Get all registered commands
+            all_commands = sorted([c.name for c in self.bot.commands])
+            cog_commands = sorted([c.name for c in self.get_commands()])
+
+            embed = discord.Embed(
+                title="🔧 Debug Information",
+                color=discord.Color.blue()
+            )
+
+            embed.add_field(
+                name="Bot Commands",
+                value=f"Total: {len(all_commands)}\n" + "\n".join(all_commands),
+                inline=False
+            )
+
+            embed.add_field(
+                name="Cog Commands",
+                value=f"Total: {len(cog_commands)}\n" + "\n".join(cog_commands),
+                inline=False
+            )
+
+            await ctx.send(embed=embed)
+            logger.info(f"Debug command executed by {ctx.author}")
+
+        except Exception as e:
+            logger.error(f"Error in debug command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='ping')
     async def ping_command(self, ctx):
@@ -65,6 +94,7 @@ class Commands(commands.Cog):
                 color=discord.Color.blue()
             )
 
+            # Define command categories with descriptions
             commands_list = {
                 "💰 Économie": {
                     "!work": "Travailler pour gagner des points (1x par jour)",
@@ -92,15 +122,14 @@ class Commands(commands.Cog):
                 },
                 "📌 Divers": {
                     "!ping": "Tester si le bot répond",
-                    "!help": "Voir cette aide"
+                    "!help": "Voir cette aide",
+                    "!debug": "Afficher les commandes enregistrées (Staff)"
                 }
             }
 
             # Add staff commands if user is staff
-            is_staff = ctx.author.guild_permissions.administrator or \
-                      any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles)
-
-            if is_staff:
+            if ctx.author.guild_permissions.administrator or \
+               any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles):
                 commands_list["⚡ Staff"] = {
                     "!addpoints @user montant": "Ajouter des points à un membre",
                     "!removepoints @user montant": "Retirer des points à un membre"
@@ -112,8 +141,10 @@ class Commands(commands.Cog):
                 for cmd, limit in DAILY_LIMITS.items()
                 if limit > 0
             ])
+
             embed.add_field(name="⚠️ Limites", value=limits_info, inline=False)
 
+            # Add each category to the embed
             for category, cmds in commands_list.items():
                 embed.add_field(
                     name=category,
@@ -122,7 +153,7 @@ class Commands(commands.Cog):
                 )
 
             await ctx.send(embed=embed)
-            logger.info(f"Help command executed by {ctx.author}")
+            logger.info(f"Help command executed successfully for {ctx.author}")
         except Exception as e:
             logger.error(f"Error in help command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")

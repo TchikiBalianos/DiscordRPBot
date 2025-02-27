@@ -8,6 +8,7 @@ dependencies = [
     "flask-login>=0.6.3",
     "oauthlib>=3.2.2",
     "pynacl>=1.5.0",
+    "python-dotenv>=1.0.1",
     "slack-sdk>=3.34.0",
     "tweepy>=4.15.0",
     "twilio>=9.4.6",

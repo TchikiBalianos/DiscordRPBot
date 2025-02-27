@@ -14,13 +14,14 @@ logging.basicConfig(
 logger = logging.getLogger('EngagementBot')
 
 class EngagementBot(commands.Bot):
+    """Initialize bot with required intents"""
     def __init__(self):
-        """Initialize bot with required intents"""
         # Configure intents
         intents = discord.Intents.default()
         intents.message_content = True
         intents.members = True
         intents.reactions = True
+        intents.guilds = True
         intents.guild_messages = True
         logger.info(f"Configured intents: {intents.value}")
 
@@ -42,6 +43,7 @@ class EngagementBot(commands.Bot):
             from commands import Commands
             commands_cog = Commands(self, self.point_system, self.twitter_handler)
             await self.add_cog(commands_cog)
+            logger.info(f"Cog commands: {[c.name for c in commands_cog.get_commands()]}")
 
             # Log all commands after loading the cog
             logger.info("Commands cog loaded successfully")
@@ -56,11 +58,17 @@ class EngagementBot(commands.Bot):
         """Called when the bot is ready"""
         try:
             logger.info(f'Bot is ready! Logged in as {self.user.name} (ID: {self.user.id})')
+
+            # Log guild information
             for guild in self.guilds:
                 logger.info(f"Connected to guild: {guild.name} (ID: {guild.id})")
+                me = guild.me
+                logger.info(f"Bot permissions in {guild.name}: {me.guild_permissions.value}")
 
             # Log available commands again after bot is ready
-            logger.info(f"Commands available after ready: {sorted([c.name for c in self.commands])}")
+            all_commands = sorted([c.name for c in self.commands])
+            logger.info(f"Commands available after ready: {all_commands}")
+            logger.info(f"Total commands: {len(all_commands)}")
         except Exception as e:
             logger.error(f"Error in on_ready: {e}", exc_info=True)
 
@@ -70,10 +78,15 @@ class EngagementBot(commands.Bot):
             return
 
         try:
-            if message.content.startswith(self.command_prefix):
-                logger.info(f"Command received: '{message.content}' from {message.author}")
+            # Log message details for debugging
+            logger.info(f"Message received: '{message.content}' from {message.author} ({message.author.id})")
 
-            await self.process_commands(message)
+            if message.content.startswith(self.command_prefix):
+                logger.info(f"Command detected: '{message.content}' from {message.author}")
+                # Process the command
+                await self.process_commands(message)
+                logger.info(f"Command processed: '{message.content}'")
+
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
             await message.channel.send("❌ Une erreur s'est produite.")
