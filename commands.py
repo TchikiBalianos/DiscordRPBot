@@ -20,11 +20,34 @@ def is_staff():
 def check_daily_limit(command_name):
     """Decorator to check daily command limits"""
     async def predicate(ctx):
-        usage = ctx.bot.point_system.db.get_daily_usage(str(ctx.author.id), command_name)
-        if usage >= DAILY_LIMITS.get(command_name, float('inf')):
-            await ctx.send(f"❌ Tu as atteint la limite quotidienne pour cette commande ({DAILY_LIMITS[command_name]}x par jour)")
-            return False
-        return True
+        # Accéder à la base de données pour vérifier l'utilisation quotidienne
+        try:
+            # Incrémenter l'utilisation quotidienne pour ce tracage
+            if hasattr(ctx.bot, 'db'):
+                # Accès direct à la base de données
+                usage = ctx.bot.db.get_daily_usage(str(ctx.author.id), command_name)
+            elif hasattr(ctx.bot, 'point_system') and hasattr(ctx.bot.point_system, 'db'):
+                # Accès via point_system
+                usage = ctx.bot.point_system.db.get_daily_usage(str(ctx.author.id), command_name)
+            else:
+                # Cas de fallback si la structure n'est pas comme prévu
+                logger.warning(f"Impossible d'accéder à la base de données pour vérifier les limites quotidiennes: {command_name}")
+                return True  # Permettre l'exécution par défaut
+                
+            if usage >= DAILY_LIMITS.get(command_name, float('inf')):
+                await ctx.send(f"❌ Tu as atteint la limite quotidienne pour cette commande ({DAILY_LIMITS[command_name]}x par jour)")
+                return False
+            
+            # Incrémenter uniquement si le check passe, pour ne pas compter les tentatives échouées
+            if hasattr(ctx.bot, 'db'):
+                ctx.bot.db.increment_daily_usage(str(ctx.author.id), command_name)
+            elif hasattr(ctx.bot, 'point_system') and hasattr(ctx.bot.point_system, 'db'):
+                ctx.bot.point_system.db.increment_daily_usage(str(ctx.author.id), command_name)
+                
+            return True
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification des limites quotidiennes: {e}", exc_info=True)
+            return True  # En cas d'erreur, permettre l'exécution
     return commands.check(predicate)
 
 class Commands(commands.Cog):
@@ -78,7 +101,16 @@ class Commands(commands.Cog):
         """Simple ping command to test bot responsiveness"""
         try:
             logger.info(f"Ping command received from {ctx.author} in channel {ctx.channel.name}")
-            await ctx.send("Pong! ✅")
+            
+            # Calculate bot latency
+            latency = round(self.bot.latency * 1000)
+            
+            # Send response with more information
+            await ctx.send(f"Pong! ✅ Latence : {latency}ms\nLe bot fonctionne correctement.")
+            
+            # Log available commands
+            all_commands = [c.name for c in self.bot.commands]
+            logger.info(f"Available commands when ping was executed: {all_commands}")
             logger.info(f"Ping command executed successfully for {ctx.author}")
         except Exception as e:
             logger.error(f"Error in ping command: {e}", exc_info=True)

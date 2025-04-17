@@ -2,6 +2,7 @@ import os
 import discord
 from discord.ext import commands
 import logging
+import asyncio
 from database import Database
 from point_system import PointSystem
 from twitter_handler import TwitterHandler
@@ -69,8 +70,24 @@ class EngagementBot(commands.Bot):
             all_commands = sorted([c.name for c in self.commands])
             logger.info(f"Commands available after ready: {all_commands}")
             logger.info(f"Total commands: {len(all_commands)}")
+            
+            # Setup periodic command check
+            self.bg_task = self.loop.create_task(self.check_commands_periodically())
+            
         except Exception as e:
             logger.error(f"Error in on_ready: {e}", exc_info=True)
+            
+    async def check_commands_periodically(self):
+        """Check commands periodically to ensure they're still registered"""
+        try:
+            await asyncio.sleep(60)  # Wait 1 minute after startup
+            while not self.is_closed():
+                all_commands = sorted([c.name for c in self.commands])
+                logger.info(f"Periodic command check - commands available: {all_commands}")
+                logger.info(f"Total commands: {len(all_commands)}")
+                await asyncio.sleep(300)  # Check every 5 minutes
+        except Exception as e:
+            logger.error(f"Error in periodic command check: {e}", exc_info=True)
 
     async def on_message(self, message):
         """Handle messages"""
@@ -81,8 +98,28 @@ class EngagementBot(commands.Bot):
             # Log message details for debugging
             logger.info(f"Message received: '{message.content}' from {message.author} ({message.author.id})")
 
+            # Points for message activity
+            if not message.content.startswith(self.command_prefix):
+                # Add points for regular messages
+                try:
+                    await self.point_system.award_message_points(str(message.author.id))
+                except Exception as e:
+                    logger.error(f"Error awarding message points: {e}", exc_info=True)
+
+            # Process commands
             if message.content.startswith(self.command_prefix):
-                logger.info(f"Command detected: '{message.content}' from {message.author}")
+                command_name = message.content.split()[0][1:].lower()  # Extract command name without prefix
+                logger.info(f"Command detected: '{message.content}' (command: {command_name}) from {message.author}")
+                
+                # Debug: List available commands
+                available_cmds = [c.name for c in self.commands]
+                logger.info(f"Available commands: {available_cmds}")
+                
+                if command_name in available_cmds:
+                    logger.info(f"Command '{command_name}' is registered, processing...")
+                else:
+                    logger.warning(f"Command '{command_name}' is not registered")
+                
                 # Process the command
                 await self.process_commands(message)
                 logger.info(f"Command processed: '{message.content}'")
@@ -92,14 +129,35 @@ class EngagementBot(commands.Bot):
             await message.channel.send("❌ Une erreur s'est produite.")
 
     async def on_command_error(self, ctx, error):
-        """Handle command errors"""
+        """Handle command errors with more detailed error handling"""
         try:
             if isinstance(error, commands.CommandNotFound):
-                logger.warning(f"Command not found: {ctx.message.content}")
-                await ctx.send("❌ Commande non trouvée. Utilisez !help pour voir les commandes disponibles.")
+                cmd_name = ctx.message.content.split()[0][1:] if ctx.message.content.startswith(self.command_prefix) else "unknown"
+                logger.warning(f"Command not found: '{cmd_name}' from message: '{ctx.message.content}'")
+                
+                # List similar commands to suggest
+                all_commands = [c.name for c in self.commands]
+                logger.info(f"Available commands: {all_commands}")
+                
+                await ctx.send(f"❌ Commande '{cmd_name}' non trouvée. Utilisez !help pour voir les commandes disponibles.")
+                
+            elif isinstance(error, commands.MissingRequiredArgument):
+                logger.warning(f"Missing argument: {str(error)}")
+                await ctx.send(f"❌ Argument manquant: {str(error)}. Utilisez !help pour voir la syntaxe correcte.")
+                
+            elif isinstance(error, commands.BadArgument):
+                logger.warning(f"Bad argument: {str(error)}")
+                await ctx.send(f"❌ Argument invalide: {str(error)}. Utilisez !help pour voir la syntaxe correcte.")
+                
+            elif isinstance(error, commands.CheckFailure):
+                logger.warning(f"Check failure: {str(error)}")
+                await ctx.send("❌ Vous n'avez pas la permission d'utiliser cette commande ou vous avez atteint la limite quotidienne.")
+                
             else:
                 logger.error(f"Command error: {str(error)}", exc_info=True)
-                await ctx.send("❌ Une erreur s'est produite.")
+                logger.error(f"Command: {ctx.command} | Author: {ctx.author} | Guild: {ctx.guild}")
+                await ctx.send("❌ Une erreur s'est produite lors de l'exécution de la commande.")
+                
         except Exception as e:
             logger.error(f"Error in error handler: {e}", exc_info=True)
 
