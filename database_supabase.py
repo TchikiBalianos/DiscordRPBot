@@ -1,9 +1,11 @@
 import os
 import logging
-from typing import Optional, Dict, List, Any
-from supabase import create_client, Client
-from datetime import datetime
 import json
+import asyncio
+from typing import Optional, Dict, List, Any, Tuple
+from supabase import create_client, Client
+from datetime import datetime, date
+import time
 
 logger = logging.getLogger('EngagementBot')
 
@@ -11,7 +13,7 @@ class SupabaseDatabase:
     """Database manager using Supabase PostgreSQL"""
     
     def __init__(self):
-        self.supabase: Client = None
+        self.supabase: Optional[Client] = None
         self._initialize_client()
     
     def _initialize_client(self):
@@ -27,6 +29,10 @@ class SupabaseDatabase:
             self.supabase = create_client(url, key)
             logger.info("Supabase client initialized successfully")
             
+            # Test de connexion
+            result = self.supabase.table('users').select('count').limit(1).execute()
+            logger.info("Supabase connection test successful")
+            
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}", exc_info=True)
     
@@ -39,6 +45,9 @@ class SupabaseDatabase:
     def get_user_data(self, user_id: str) -> Dict:
         """Get user data"""
         try:
+            if not self.is_connected():
+                return {'user_id': user_id, 'points': 0}
+            
             result = self.supabase.table('users').select('*').eq('user_id', user_id).execute()
             
             if result.data:
@@ -59,21 +68,14 @@ class SupabaseDatabase:
     def add_points(self, user_id: str, points: int):
         """Add points to user"""
         try:
-            # Upsert user with points increment
+            if not self.is_connected():
+                return
+            
+            # Use the SQL function for atomic operation
             result = self.supabase.rpc('add_user_points', {
                 'p_user_id': user_id,
                 'p_points': points
             }).execute()
-            
-            if result.data is None:
-                # Fallback method
-                current_user = self.get_user_data(user_id)
-                new_points = current_user['points'] + points
-                self.supabase.table('users').upsert({
-                    'user_id': user_id,
-                    'points': new_points,
-                    'updated_at': datetime.now().isoformat()
-                }).execute()
             
             logger.info(f"Added {points} points to user {user_id}")
             
@@ -83,6 +85,9 @@ class SupabaseDatabase:
     def remove_points(self, user_id: str, points: int) -> bool:
         """Remove points from user"""
         try:
+            if not self.is_connected():
+                return False
+            
             current_user = self.get_user_data(user_id)
             
             if current_user['points'] < points:
@@ -103,6 +108,9 @@ class SupabaseDatabase:
     def get_leaderboard(self, limit: int = 10) -> List[Dict]:
         """Get points leaderboard"""
         try:
+            if not self.is_connected():
+                return []
+            
             result = self.supabase.table('users').select('*').order('points', desc=True).limit(limit).execute()
             return result.data or []
             
@@ -110,24 +118,192 @@ class SupabaseDatabase:
             logger.error(f"Error getting leaderboard: {e}", exc_info=True)
             return []
     
-    # === GANG MANAGEMENT ===
+    # === COOLDOWNS ===
+    
+    def set_cooldown(self, table_name: str, user_id: str, cooldown_time: float):
+        """Set user cooldown"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('user_cooldowns').upsert({
+                'user_id': user_id,
+                'cooldown_type': table_name,
+                'cooldown_until': cooldown_time
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error setting cooldown: {e}", exc_info=True)
+    
+    def get_cooldown(self, table_name: str, user_id: str) -> Optional[float]:
+        """Get user cooldown"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('user_cooldowns').select('cooldown_until').eq('user_id', user_id).eq('cooldown_type', table_name).execute()
+            
+            if result.data:
+                return result.data[0]['cooldown_until']
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting cooldown: {e}", exc_info=True)
+            return None
+    
+    def remove_cooldown(self, table_name: str, user_id: str):
+        """Remove user cooldown"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('user_cooldowns').delete().eq('user_id', user_id).eq('cooldown_type', table_name).execute()
+            
+        except Exception as e:
+            logger.error(f"Error removing cooldown: {e}", exc_info=True)
+    
+    # === VOICE SESSIONS ===
+    
+    def start_voice_session(self, user_id: str, event_name: str = None):
+        """Start voice session"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('voice_sessions').upsert({
+                'user_id': user_id,
+                'start_time': time.time(),
+                'event_name': event_name
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error starting voice session: {e}", exc_info=True)
+    
+    def end_voice_session(self, user_id: str) -> Optional[Dict]:
+        """End voice session and return session info"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            # Get session
+            result = self.supabase.table('voice_sessions').select('*').eq('user_id', user_id).execute()
+            
+            if result.data:
+                session = result.data[0]
+                
+                # Remove session
+                self.supabase.table('voice_sessions').delete().eq('user_id', user_id).execute()
+                
+                return session
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error ending voice session: {e}", exc_info=True)
+            return None
+    
+    def get_voice_session(self, user_id: str) -> Optional[Dict]:
+        """Get current voice session"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('voice_sessions').select('*').eq('user_id', user_id).execute()
+            return result.data[0] if result.data else None
+            
+        except Exception as e:
+            logger.error(f"Error getting voice session: {e}", exc_info=True)
+            return None
+    
+    # === TWITTER ===
+    
+    def link_twitter(self, user_id: str, twitter_handle: str):
+        """Link Twitter account"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('twitter_links').upsert({
+                'user_id': user_id,
+                'twitter_handle': twitter_handle
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error linking Twitter: {e}", exc_info=True)
+    
+    def get_twitter_link(self, user_id: str) -> Optional[str]:
+        """Get Twitter link"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('twitter_links').select('twitter_handle').eq('user_id', user_id).execute()
+            return result.data[0]['twitter_handle'] if result.data else None
+            
+        except Exception as e:
+            logger.error(f"Error getting Twitter link: {e}", exc_info=True)
+            return None
+    
+    # === PRISON ===
+    
+    def set_prison_time(self, user_id: str, release_time: float):
+        """Set prison time"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('prison_times').upsert({
+                'user_id': user_id,
+                'release_time': release_time
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error setting prison time: {e}", exc_info=True)
+    
+    def get_prison_time(self, user_id: str) -> Optional[float]:
+        """Get prison release time"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('prison_times').select('release_time').eq('user_id', user_id).execute()
+            return result.data[0]['release_time'] if result.data else None
+            
+        except Exception as e:
+            logger.error(f"Error getting prison time: {e}", exc_info=True)
+            return None
+    
+    def remove_prison_time(self, user_id: str):
+        """Remove prison time"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('prison_times').delete().eq('user_id', user_id).execute()
+            
+        except Exception as e:
+            logger.error(f"Error removing prison time: {e}", exc_info=True)
+    
+    # === GANGS ===
     
     def create_gang(self, name: str, boss_id: str, description: str = "") -> bool:
         """Create a new gang"""
         try:
-            gang_data = {
+            if not self.is_connected():
+                return False
+            
+            # Create gang
+            gang_result = self.supabase.table('gangs').insert({
                 'name': name,
                 'description': description,
                 'boss_id': boss_id,
                 'vault_points': 0,
                 'reputation': 0,
                 'territory_count': 0
-            }
+            }).execute()
             
-            result = self.supabase.table('gangs').insert(gang_data).execute()
-            
-            if result.data:
-                gang_id = result.data[0]['id']
+            if gang_result.data:
+                gang_id = gang_result.data[0]['id']
                 
                 # Add boss as member
                 self.supabase.table('gang_members').insert({
@@ -144,11 +320,19 @@ class SupabaseDatabase:
             logger.error(f"Error creating gang: {e}", exc_info=True)
             return False
     
-    def get_gang_by_name(self, name: str) -> Optional[Dict]:
+    def get_gang_by_name(self, name: str) -> Optional[Tuple[str, Dict]]:
         """Get gang by name"""
         try:
+            if not self.is_connected():
+                return None
+            
             result = self.supabase.table('gangs').select('*').eq('name', name).execute()
-            return result.data[0] if result.data else None
+            
+            if result.data:
+                gang = result.data[0]
+                return gang['id'], gang
+            
+            return None
             
         except Exception as e:
             logger.error(f"Error getting gang by name: {e}", exc_info=True)
@@ -157,6 +341,9 @@ class SupabaseDatabase:
     def get_user_gang(self, user_id: str) -> Optional[str]:
         """Get user's gang ID"""
         try:
+            if not self.is_connected():
+                return None
+            
             result = self.supabase.table('gang_members').select('gang_id').eq('user_id', user_id).execute()
             return result.data[0]['gang_id'] if result.data else None
             
@@ -164,134 +351,285 @@ class SupabaseDatabase:
             logger.error(f"Error getting user gang: {e}", exc_info=True)
             return None
     
-    # === TERRITORY MANAGEMENT ===
+    def get_gang_info(self, gang_id: str) -> Optional[Dict]:
+        """Get gang info with members"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            # Get gang info
+            gang_result = self.supabase.table('gangs').select('*').eq('id', gang_id).execute()
+            
+            if not gang_result.data:
+                return None
+            
+            gang = gang_result.data[0]
+            
+            # Get members
+            members_result = self.supabase.table('gang_members').select('*').eq('gang_id', gang_id).execute()
+            
+            # Format members
+            members = {}
+            for member in members_result.data or []:
+                members[member['user_id']] = {
+                    'rank': member['rank'],
+                    'joined_at': member['joined_at']
+                }
+            
+            gang['members'] = members
+            return gang
+            
+        except Exception as e:
+            logger.error(f"Error getting gang info: {e}", exc_info=True)
+            return None
     
-    def get_all_territories(self) -> List[Dict]:
+    # === TERRITORIES ===
+    
+    def get_all_territories(self) -> Dict:
         """Get all territories"""
         try:
+            if not self.is_connected():
+                return {}
+            
             result = self.supabase.table('territories').select('*').execute()
-            return result.data or []
+            
+            territories = {}
+            for territory in result.data or []:
+                territories[territory['id']] = territory
+            
+            return territories
             
         except Exception as e:
             logger.error(f"Error getting territories: {e}", exc_info=True)
-            return []
+            return {}
     
-    def claim_territory(self, territory_id: str, gang_id: str) -> bool:
-        """Claim a territory for a gang"""
+    # === DAILY COMMANDS ===
+    
+    def get_daily_commands(self, user_id: str, command_date: str = None) -> Dict:
+        """Get daily commands for user"""
         try:
-            result = self.supabase.table('territories').update({
-                'controlled_by': gang_id,
-                'controlled_since': datetime.now().isoformat()
-            }).eq('id', territory_id).execute()
+            if not self.is_connected():
+                return {}
             
-            return bool(result.data)
+            if not command_date:
+                command_date = date.today().isoformat()
+            
+            result = self.supabase.table('daily_commands').select('commands').eq('user_id', user_id).eq('command_date', command_date).execute()
+            
+            if result.data:
+                return result.data[0]['commands'] or {}
+            
+            return {}
             
         except Exception as e:
-            logger.error(f"Error claiming territory: {e}", exc_info=True)
-            return False
+            logger.error(f"Error getting daily commands: {e}", exc_info=True)
+            return {}
     
-    # === COOLDOWNS & SESSIONS ===
-    
-    def set_cooldown(self, table_name: str, user_id: str, cooldown_time: float):
-        """Set user cooldown (using JSON storage for backwards compatibility)"""
+    def increment_daily_command(self, user_id: str, command_name: str, command_date: str = None):
+        """Increment daily command count"""
         try:
-            # For now, we'll store cooldowns in a JSON column
-            # In production, you'd want separate tables for each type
-            self.supabase.table('user_cooldowns').upsert({
+            if not self.is_connected():
+                return
+            
+            if not command_date:
+                command_date = date.today().isoformat()
+            
+            # Get current commands
+            current_commands = self.get_daily_commands(user_id, command_date)
+            current_commands[command_name] = current_commands.get(command_name, 0) + 1
+            
+            # Update
+            self.supabase.table('daily_commands').upsert({
                 'user_id': user_id,
-                'cooldown_type': table_name,
-                'cooldown_until': cooldown_time,
-                'updated_at': datetime.now().isoformat()
+                'command_date': command_date,
+                'commands': current_commands
             }).execute()
             
         except Exception as e:
-            logger.error(f"Error setting cooldown: {e}", exc_info=True)
+            logger.error(f"Error incrementing daily command: {e}", exc_info=True)
     
-    def get_cooldown(self, table_name: str, user_id: str) -> Optional[float]:
-        """Get user cooldown"""
+    # === INVENTORIES ===
+    
+    def get_inventory(self, user_id: str) -> List[str]:
+        """Get user inventory"""
         try:
-            result = self.supabase.table('user_cooldowns').select('cooldown_until').eq('user_id', user_id).eq('cooldown_type', table_name).execute()
+            if not self.is_connected():
+                return []
+            
+            result = self.supabase.table('inventories').select('items').eq('user_id', user_id).execute()
             
             if result.data:
-                return result.data[0]['cooldown_until']
-            return None
+                return result.data[0]['items'] or []
+            
+            return []
             
         except Exception as e:
-            logger.error(f"Error getting cooldown: {e}", exc_info=True)
-            return None
+            logger.error(f"Error getting inventory: {e}", exc_info=True)
+            return []
     
-    # === MIGRATION HELPER ===
+    def add_item(self, user_id: str, item: str):
+        """Add item to inventory"""
+        try:
+            if not self.is_connected():
+                return
+            
+            current_items = self.get_inventory(user_id)
+            current_items.append(item)
+            
+            self.supabase.table('inventories').upsert({
+                'user_id': user_id,
+                'items': current_items
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error adding item: {e}", exc_info=True)
+    
+    def remove_item(self, user_id: str, item: str) -> bool:
+        """Remove item from inventory"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            current_items = self.get_inventory(user_id)
+            
+            if item in current_items:
+                current_items.remove(item)
+                
+                self.supabase.table('inventories').update({
+                    'items': current_items
+                }).eq('user_id', user_id).execute()
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error removing item: {e}", exc_info=True)
+            return False
+    
+    # === MIGRATION ===
     
     def migrate_from_json(self, json_file_path: str):
         """Migrate data from JSON file to Supabase"""
         try:
+            if not self.is_connected():
+                logger.error("Cannot migrate: Supabase not connected")
+                return
+            
             with open(json_file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             logger.info("Starting migration from JSON to Supabase...")
             
             # Migrate users
-            if 'users' in data:
+            if 'users' in data and data['users']:
+                users_to_insert = []
                 for user_id, user_data in data['users'].items():
-                    self.supabase.table('users').upsert({
+                    users_to_insert.append({
                         'user_id': user_id,
                         'points': user_data.get('points', 0)
-                    }).execute()
-                logger.info(f"Migrated {len(data['users'])} users")
+                    })
+                
+                if users_to_insert:
+                    self.supabase.table('users').upsert(users_to_insert).execute()
+                    logger.info(f"Migrated {len(users_to_insert)} users")
             
-            # Migrate gangs (if any exist in old format)
-            if 'gangs' in data and data['gangs']:
-                for gang_id, gang_data in data['gangs'].items():
-                    self.create_gang(
-                        gang_data['name'],
-                        gang_data['boss_id'],
-                        gang_data.get('description', '')
-                    )
-                logger.info(f"Migrated {len(data['gangs'])} gangs")
+            # Migrate cooldowns
+            cooldown_tables = ['rob_cooldowns', 'last_work', 'drug_deal_cooldowns', 'roulette_cooldowns']
+            for table_name in cooldown_tables:
+                if table_name in data and data[table_name]:
+                    cooldowns_to_insert = []
+                    for user_id, cooldown_time in data[table_name].items():
+                        cooldowns_to_insert.append({
+                            'user_id': user_id,
+                            'cooldown_type': table_name,
+                            'cooldown_until': cooldown_time
+                        })
+                    
+                    if cooldowns_to_insert:
+                        self.supabase.table('user_cooldowns').upsert(cooldowns_to_insert).execute()
+                        logger.info(f"Migrated {len(cooldowns_to_insert)} {table_name}")
+            
+            # Migrate Twitter links
+            if 'twitter_links' in data and data['twitter_links']:
+                twitter_links = []
+                for user_id, handle in data['twitter_links'].items():
+                    twitter_links.append({
+                        'user_id': user_id,
+                        'twitter_handle': handle
+                    })
+                
+                if twitter_links:
+                    self.supabase.table('twitter_links').upsert(twitter_links).execute()
+                    logger.info(f"Migrated {len(twitter_links)} Twitter links")
+            
+            # Migrate prison times
+            if 'prison_times' in data and data['prison_times']:
+                prison_times = []
+                for user_id, release_time in data['prison_times'].items():
+                    prison_times.append({
+                        'user_id': user_id,
+                        'release_time': release_time
+                    })
+                
+                if prison_times:
+                    self.supabase.table('prison_times').upsert(prison_times).execute()
+                    logger.info(f"Migrated {len(prison_times)} prison times")
+            
+            # Migrate inventories
+            if 'inventories' in data and data['inventories']:
+                inventories = []
+                for user_id, items in data['inventories'].items():
+                    inventories.append({
+                        'user_id': user_id,
+                        'items': items
+                    })
+                
+                if inventories:
+                    self.supabase.table('inventories').upsert(inventories).execute()
+                    logger.info(f"Migrated {len(inventories)} inventories")
+            
+            # Migrate daily commands
+            if 'daily_commands' in data and data['daily_commands']:
+                daily_commands = []
+                for user_id, dates_data in data['daily_commands'].items():
+                    for date_str, commands in dates_data.items():
+                        daily_commands.append({
+                            'user_id': user_id,
+                            'command_date': date_str,
+                            'commands': commands
+                        })
+                
+                if daily_commands:
+                    self.supabase.table('daily_commands').upsert(daily_commands).execute()
+                    logger.info(f"Migrated {len(daily_commands)} daily command records")
             
             logger.info("Migration completed successfully!")
             
         except Exception as e:
             logger.error(f"Error during migration: {e}", exc_info=True)
-
-# === SQL FUNCTIONS (à exécuter dans Supabase) ===
-SQL_FUNCTIONS = """
--- Function to add points atomically
-CREATE OR REPLACE FUNCTION add_user_points(p_user_id TEXT, p_points INTEGER)
-RETURNS VOID AS $$
-BEGIN
-    INSERT INTO users (user_id, points, updated_at)
-    VALUES (p_user_id, p_points, NOW())
-    ON CONFLICT (user_id)
-    DO UPDATE SET 
-        points = users.points + p_points,
-        updated_at = NOW();
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to get gang with members
-CREATE OR REPLACE FUNCTION get_gang_with_members(p_gang_id UUID)
-RETURNS JSON AS $$
-DECLARE
-    result JSON;
-BEGIN
-    SELECT json_build_object(
-        'gang', row_to_json(g),
-        'members', COALESCE(
-            (SELECT json_agg(
-                json_build_object(
-                    'user_id', gm.user_id,
-                    'rank', gm.rank,
-                    'joined_at', gm.joined_at
-                )
-            ) FROM gang_members gm WHERE gm.gang_id = p_gang_id),
-            '[]'::json
-        )
-    ) INTO result
-    FROM gangs g
-    WHERE g.id = p_gang_id;
     
-    RETURN result;
-END;
-$$ LANGUAGE plpgsql;
-"""
+    # === UTILITY ===
+    
+    def cleanup_expired_data(self):
+        """Cleanup expired data"""
+        try:
+            if not self.is_connected():
+                return
+            
+            # Cleanup expired cooldowns
+            self.supabase.rpc('cleanup_expired_cooldowns').execute()
+            logger.info("Cleaned up expired cooldowns")
+            
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}", exc_info=True)
+    
+    def save_data(self):
+        """Compatibility method - not needed for Supabase"""
+        pass
+    
+    @property
+    def data(self) -> Dict:
+        """Compatibility property for legacy code"""
+        logger.warning("Using legacy data property - consider migrating to specific methods")
+        return {}

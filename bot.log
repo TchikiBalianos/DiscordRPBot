@@ -1,0 +1,177 @@
+2025-06-21 19:03:22,595 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-06-21 19:03:22,999 - EngagementBot - INFO - Supabase client initialized successfully
+2025-06-21 19:03:23,969 - httpx - INFO - HTTP Request: GET https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/users?select=count&limit=1 "HTTP/2 200 OK"
+2025-06-21 19:03:23,972 - EngagementBot - INFO - Supabase connection test successful
+2025-06-21 19:03:23,973 - EngagementBot - INFO - Twitter client initialized
+2025-06-21 19:03:23,973 - EngagementBot - INFO - Successfully connected to Supabase database
+2025-06-21 19:03:23,973 - discord.client - INFO - logging in using static token
+2025-06-21 19:03:24,501 - EngagementBot - INFO - Twitter rate limiter started
+2025-06-21 19:03:24,502 - EngagementBot - INFO - Twitter handler started
+2025-06-21 19:03:24,502 - EngagementBot - INFO - Loading Commands cog...
+2025-06-21 19:03:24,554 - EngagementBot - INFO - Commands cog initialized
+2025-06-21 19:03:24,554 - EngagementBot - INFO - Commands being registered: ['app_command', 'buy_command', 'combat_command', 'debug_command', 'heist_command', 'help_command', 'join_heist_command', 'leaderboard_command', 'ping_command', 'points_command', 'prison_activity_command', 'prison_status_command', 'revenge_command', 'rob_command', 'shop_command', 'tribunal_command', 'work_command']
+2025-06-21 19:03:24,555 - EngagementBot - INFO - Loading Gang Commands cog...
+2025-06-21 19:03:24,585 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,585 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,586 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,586 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,586 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,589 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,590 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,592 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,593 - EngagementBot - INFO - Commands cogs loaded successfully
+2025-06-21 19:03:24,597 - EngagementBot - INFO - Available commands: ['activity', 'addpoints', 'buy', 'combat', 'debug', 'gang', 'heist', 'help', 'inventory', 'joinheist', 'leaderboard', 'linktwitter', 'ping', 'points', 'prison', 'removepoints', 'revenge', 'rob', 'shop', 'territory', 'trade', 'tribunal', 'twitterqueue', 'twitterstatus', 'unlinktwitter', 'war', 'work']
+2025-06-21 19:03:24,597 - EngagementBot - INFO - Total number of commands: 27
+2025-06-21 19:03:24,599 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,599 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,602 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,603 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,603 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,604 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,604 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,604 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:03:24,605 - EngagementBot - INFO - Starting gang events system...
+2025-06-21 19:03:24,606 - EngagementBot - INFO - Started event loop for territory_income
+2025-06-21 19:03:24,607 - EngagementBot - INFO - Started event loop for random_event
+2025-06-21 19:03:24,608 - EngagementBot - INFO - Started event loop for war_update
+2025-06-21 19:03:24,608 - EngagementBot - INFO - Started event loop for territory_attack
+2025-06-21 19:03:24,608 - EngagementBot - INFO - Started event loop for gang_bonus
+2025-06-21 19:03:24,608 - EngagementBot - INFO - Gang events system started with 5 active loops
+2025-06-21 19:03:24,609 - EngagementBot - INFO - Gang events system successfully set up
+2025-06-21 19:03:24,610 - EngagementBot - INFO - Gang events system started
+2025-06-21 19:03:24,945 - httpx - INFO - HTTP Request: GET https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/users?select=%2A&order=points.desc&limit=1 "HTTP/2 200 OK"
+2025-06-21 19:03:24,949 - EngagementBot - INFO - No users found in database, checking for data.json migration...
+2025-06-21 19:03:24,956 - EngagementBot - INFO - Starting migration from JSON to Supabase...
+2025-06-21 19:03:25,114 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/users?columns=%22user_id%22%2C%22points%22 "HTTP/2 201 Created"
+2025-06-21 19:03:25,115 - EngagementBot - INFO - Migrated 12 users
+2025-06-21 19:03:25,264 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/user_cooldowns?columns=%22user_id%22%2C%22cooldown_until%22%2C%22cooldown_type%22 "HTTP/2 201 Created"
+2025-06-21 19:03:25,265 - EngagementBot - INFO - Migrated 4 rob_cooldowns
+2025-06-21 19:03:25,412 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/user_cooldowns?columns=%22user_id%22%2C%22cooldown_until%22%2C%22cooldown_type%22 "HTTP/2 201 Created"
+2025-06-21 19:03:25,413 - EngagementBot - INFO - Migrated 4 last_work
+2025-06-21 19:03:25,735 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/user_cooldowns?columns=%22user_id%22%2C%22cooldown_until%22%2C%22cooldown_type%22 "HTTP/2 201 Created"
+2025-06-21 19:03:25,736 - EngagementBot - INFO - Migrated 1 drug_deal_cooldowns
+2025-06-21 19:03:26,128 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/twitter_links?columns=%22user_id%22%2C%22twitter_handle%22 "HTTP/2 201 Created"
+2025-06-21 19:03:26,128 - EngagementBot - INFO - Migrated 1 Twitter links
+2025-06-21 19:03:26,274 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/prison_times?columns=%22user_id%22%2C%22release_time%22 "HTTP/2 201 Created"
+2025-06-21 19:03:26,275 - EngagementBot - INFO - Migrated 2 prison times
+2025-06-21 19:03:26,623 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/inventories?columns=%22user_id%22%2C%22items%22 "HTTP/2 201 Created"
+2025-06-21 19:03:26,623 - EngagementBot - INFO - Migrated 1 inventories
+2025-06-21 19:03:26,948 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/daily_commands?columns=%22user_id%22%2C%22command_date%22%2C%22commands%22 "HTTP/2 201 Created"
+2025-06-21 19:03:26,949 - EngagementBot - INFO - Migrated 7 daily command records
+2025-06-21 19:03:26,949 - EngagementBot - INFO - Migration completed successfully!
+2025-06-21 19:03:26,950 - EngagementBot - INFO - Created backup of data.json
+2025-06-21 19:03:27,473 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 7368d48876c1c104b86e1b0cc2a23a73).
+2025-06-21 19:03:29,542 - EngagementBot - INFO - THUGZ ENGAGE BOT#9849 has connected to Discord!
+2025-06-21 19:03:29,542 - EngagementBot - INFO - Bot is in 1 guilds
+2025-06-21 19:03:29,733 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/rpc/cleanup_expired_cooldowns "HTTP/2 204 No Content"
+2025-06-21 19:03:29,736 - EngagementBot - INFO - Cleaned up expired cooldowns
+2025-06-21 19:11:03,965 - EngagementBot - ERROR - Command error: Command raised an exception: AttributeError: 'PointSystem' object has no attribute 'db'
+NoneType: None
+2025-06-21 19:11:03,965 - EngagementBot - ERROR - Command: inventory | Author: satoshi.nakamoto | Guild: Thugz Life
+2025-06-21 19:11:14,912 - EngagementBot - INFO - Shop displayed to satoshi.nakamoto
+2025-06-21 19:12:37,193 - EngagementBot - INFO - Help command executed successfully for satoshi.nakamoto
+2025-06-21 19:13:26,965 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:13:26,965 - EngagementBot - ERROR - Error handling event war_update: 'gang_wars'
+Traceback (most recent call last):
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_events.py", line 172, in _handle_event
+    await self._update_wars()
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_events.py", line 227, in _update_wars
+    active_wars = self.war_system.get_active_wars()
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_wars.py", line 281, in get_active_wars
+    for war in self.db.data["gang_wars"].values():
+               ~~~~~~~~~~~~^^^^^^^^^^^^^
+KeyError: 'gang_wars'
+2025-06-21 19:23:26,978 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:23:26,978 - EngagementBot - ERROR - Error handling event war_update: 'gang_wars'
+Traceback (most recent call last):
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_events.py", line 172, in _handle_event
+    await self._update_wars()
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_events.py", line 227, in _update_wars
+    active_wars = self.war_system.get_active_wars()
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_wars.py", line 281, in get_active_wars
+    for war in self.db.data["gang_wars"].values():
+               ~~~~~~~~~~~~^^^^^^^^^^^^^
+KeyError: 'gang_wars'
+2025-06-21 19:25:08,887 - EngagementBot - INFO - Shutting down bot...
+2025-06-21 19:25:08,887 - EngagementBot - INFO - Stopping gang events system...
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Event loop territory_income cancelled
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Event loop random_event cancelled
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Event loop war_update cancelled
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Event loop territory_attack cancelled
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Event loop gang_bonus cancelled
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Gang events system stopped
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Gang events system shut down
+2025-06-21 19:25:08,888 - EngagementBot - INFO - Twitter rate limiter stopped
+2025-06-21 19:25:08,889 - EngagementBot - INFO - Twitter handler stopped
+2025-06-21 19:27:46,472 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-06-21 19:27:46,835 - EngagementBot - INFO - Supabase client initialized successfully
+2025-06-21 19:27:47,533 - httpx - INFO - HTTP Request: GET https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/users?select=count&limit=1 "HTTP/2 200 OK"
+2025-06-21 19:27:47,535 - EngagementBot - INFO - Supabase connection test successful
+2025-06-21 19:27:47,536 - EngagementBot - INFO - Twitter client initialized
+2025-06-21 19:27:47,536 - EngagementBot - INFO - Successfully connected to Supabase database
+2025-06-21 19:27:47,536 - discord.client - INFO - logging in using static token
+2025-06-21 19:27:48,127 - EngagementBot - INFO - Twitter rate limiter started
+2025-06-21 19:27:48,128 - EngagementBot - INFO - Twitter handler started
+2025-06-21 19:27:48,128 - EngagementBot - INFO - Loading Commands cog...
+2025-06-21 19:27:48,131 - EngagementBot - INFO - Commands cog initialized
+2025-06-21 19:27:48,131 - EngagementBot - INFO - Commands being registered: ['app_command', 'buy_command', 'combat_command', 'debug_command', 'heist_command', 'help_command', 'join_heist_command', 'leaderboard_command', 'ping_command', 'points_command', 'prison_activity_command', 'prison_status_command', 'revenge_command', 'rob_command', 'shop_command', 'tribunal_command', 'work_command']
+2025-06-21 19:27:48,131 - EngagementBot - INFO - Loading Gang Commands cog...
+2025-06-21 19:27:48,133 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,134 - EngagementBot - INFO - Commands cogs loaded successfully
+2025-06-21 19:27:48,134 - EngagementBot - INFO - Available commands: ['activity', 'addpoints', 'buy', 'combat', 'debug', 'gang', 'heist', 'help', 'inventory', 'joinheist', 'leaderboard', 'linktwitter', 'ping', 'points', 'prison', 'removepoints', 'revenge', 'rob', 'shop', 'territory', 'trade', 'tribunal', 'twitterqueue', 'twitterstatus', 'unlinktwitter', 'war', 'work']
+2025-06-21 19:27:48,135 - EngagementBot - INFO - Total number of commands: 27
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,135 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Starting gang events system...
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Started event loop for territory_income
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Started event loop for random_event
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Started event loop for war_update
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Started event loop for territory_attack
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Started event loop for gang_bonus
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Gang events system started with 5 active loops
+2025-06-21 19:27:48,136 - EngagementBot - INFO - Gang events system successfully set up
+2025-06-21 19:27:48,137 - EngagementBot - INFO - Gang events system started
+2025-06-21 19:27:48,476 - httpx - INFO - HTTP Request: GET https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/users?select=%2A&order=points.desc&limit=1 "HTTP/2 200 OK"
+2025-06-21 19:27:49,135 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 6e002631fd54d1ab0f6500a3e6908a58).
+2025-06-21 19:27:51,228 - EngagementBot - INFO - THUGZ ENGAGE BOT#9849 has connected to Discord!
+2025-06-21 19:27:51,228 - EngagementBot - INFO - Bot is in 1 guilds
+2025-06-21 19:27:51,568 - httpx - INFO - HTTP Request: POST https://flpwyzuxcpjgvawfrasi.supabase.co/rest/v1/rpc/cleanup_expired_cooldowns "HTTP/2 204 No Content"
+2025-06-21 19:27:51,571 - EngagementBot - INFO - Cleaned up expired cooldowns
+2025-06-21 19:37:48,499 - EngagementBot - WARNING - Using legacy data property - consider migrating to specific methods
+2025-06-21 19:37:48,499 - EngagementBot - ERROR - Error handling event war_update: 'gang_wars'
+Traceback (most recent call last):
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_events.py", line 172, in _handle_event
+    await self._update_wars()
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_events.py", line 227, in _update_wars
+    active_wars = self.war_system.get_active_wars()
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\gang_wars.py", line 281, in get_active_wars
+    for war in self.db.data["gang_wars"].values():
+               ~~~~~~~~~~~~^^^^^^^^^^^^^
+KeyError: 'gang_wars'
+2025-06-21 19:40:31,983 - EngagementBot - INFO - Shutting down bot...
+2025-06-21 19:40:31,983 - EngagementBot - INFO - Stopping gang events system...
+2025-06-21 19:40:31,983 - EngagementBot - INFO - Event loop territory_income cancelled
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Event loop random_event cancelled
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Event loop war_update cancelled
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Event loop territory_attack cancelled
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Event loop gang_bonus cancelled
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Gang events system stopped
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Gang events system shut down
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Twitter rate limiter stopped
+2025-06-21 19:40:31,984 - EngagementBot - INFO - Twitter handler stopped
