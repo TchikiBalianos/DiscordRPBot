@@ -23,20 +23,25 @@ class SupabaseDatabase:
             
             if not url or not key:
                 logger.error("Supabase credentials not found in environment variables")
+                # Mode dégradé
+                self.supabase = None
                 return
             
             self.supabase = create_client(url, key)
             logger.info("Supabase client initialized successfully")
             
-            # Test de connexion simple
+            # Test de connexion simple et robuste
             try:
-                result = self.supabase.table('users').select('count', count='exact').limit(1).execute()
-                logger.info("Supabase connection test successful")
+                # Test avec une requête simple
+                result = self.supabase.table('users').select('user_id').limit(1).execute()
+                logger.info("✅ Supabase connection test successful")
             except Exception as test_error:
-                logger.warning(f"Supabase test query failed: {test_error}")
-            
+                logger.warning(f"⚠️ Supabase test query failed, but client created: {test_error}")
+                # Ne pas désactiver le client, juste avertir
+        
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}", exc_info=True)
+            self.supabase = None
     
     def is_connected(self) -> bool:
         """Check if database is connected"""
@@ -45,9 +50,11 @@ class SupabaseDatabase:
     # === USER MANAGEMENT ===
     
     def get_user_data(self, user_id: str) -> Dict:
-        """Get user data"""
+        """Get user data with fallback"""
         try:
             if not self.is_connected():
+                # Mode dégradé : retourner des données par défaut
+                logger.warning("Database not connected, using default user data")
                 return {'user_id': user_id, 'points': 0}
             
             result = self.supabase.table('users').select('*').eq('user_id', user_id).execute()
@@ -60,11 +67,17 @@ class SupabaseDatabase:
                     'user_id': user_id,
                     'points': 0
                 }
-                self.supabase.table('users').insert(new_user).execute()
+                try:
+                    self.supabase.table('users').insert(new_user).execute()
+                    logger.info(f"Created new user: {user_id}")
+                except Exception as insert_error:
+                    logger.error(f"Failed to create new user: {insert_error}")
+                
                 return new_user
                 
         except Exception as e:
-            logger.error(f"Error getting user data: {e}", exc_info=True)
+            logger.error(f"Error getting user data for {user_id}: {e}", exc_info=True)
+            # Fallback : retourner des données par défaut
             return {'user_id': user_id, 'points': 0}
     
     def add_points(self, user_id: str, points: int):

@@ -118,13 +118,46 @@ class EngagementBot(commands.Bot):
         logger.info(f'{self.user} has connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
         
+        # Vérifier l'intégrité des systèmes
+        await self._health_check()
+        
         # Set status
         activity = discord.Game(name="Système de gangs | !help")
         await self.change_presence(activity=activity)
         
         # Cleanup expired data
-        if self.db.is_connected():
-            self.db.cleanup_expired_data()
+        if self.db and self.db.is_connected():
+            try:
+                self.db.cleanup_expired_data()
+                logger.info("✅ Database cleanup completed")
+            except Exception as e:
+                logger.error(f"Database cleanup failed: {e}")
+    
+    async def _health_check(self):
+        """Vérifier la santé des systèmes"""
+        try:
+            # Vérifier la base de données
+            if not self.db or not self.db.is_connected():
+                logger.error("❌ Database connection failed")
+            else:
+                logger.info("✅ Database connection OK")
+            
+            # Vérifier le système de points
+            if not self.point_system:
+                logger.error("❌ Point system not initialized")
+            elif not hasattr(self.point_system, 'database'):
+                logger.error("❌ Point system missing database")
+            else:
+                logger.info("✅ Point system OK")
+            
+            # Vérifier Twitter
+            if not self.twitter_handler:
+                logger.warning("⚠️ Twitter handler not available")
+            else:
+                logger.info("✅ Twitter handler OK")
+            
+        except Exception as e:
+            logger.error(f"Health check failed: {e}", exc_info=True)
 
     async def on_voice_state_update(self, member, before, after):
         """Handle voice state changes"""
@@ -156,7 +189,7 @@ class EngagementBot(commands.Bot):
             logger.error(f"Error in voice state update: {e}", exc_info=True)
 
     async def on_command_error(self, ctx, error):
-        """Handle command errors"""
+        """Handle command errors with better logging"""
         try:
             if isinstance(error, commands.CommandNotFound):
                 return
@@ -168,11 +201,15 @@ class EngagementBot(commands.Bot):
                 await ctx.send("❌ Argument invalide. Vérifiez votre commande.")
             
             elif isinstance(error, commands.CheckFailure):
-                logger.warning(f"Check failure: {str(error)}")
+                logger.warning(f"Check failure for {ctx.author}: {str(error)}")
                 await ctx.send("❌ Vous n'avez pas la permission d'utiliser cette commande ou vous avez atteint la limite quotidienne.")
             
+            elif isinstance(error, AttributeError):
+                logger.error(f"AttributeError in command {ctx.command}: {str(error)}", exc_info=True)
+                await ctx.send("❌ Erreur système. L'équipe a été notifiée.")
+            
             else:
-                logger.error(f"Command error: {str(error)}", exc_info=True)
+                logger.error(f"Unhandled command error: {str(error)}", exc_info=True)
                 logger.error(f"Command: {ctx.command} | Author: {ctx.author} | Guild: {ctx.guild}")
                 await ctx.send("❌ Une erreur s'est produite lors de l'exécution de la commande.")
         
