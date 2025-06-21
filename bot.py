@@ -4,55 +4,17 @@ import logging
 import os
 from datetime import datetime
 import asyncio
+import time
 
-# Début de config suggérée par Supabase
 # Import our systems
 from database_supabase import SupabaseDatabase
 from point_system import PointSystem
 from twitter_handler import TwitterHandler
 from gang_events import setup_gang_events, shutdown_gang_events
 
-import psycopg2
+# Load environment variables
 from dotenv import load_dotenv
-import os
-
-# Load environment variables from .env
 load_dotenv()
-
-# Fetch variables
-USER = os.getenv("user")
-PASSWORD = os.getenv("password")
-HOST = os.getenv("host")
-PORT = os.getenv("port")
-DBNAME = os.getenv("dbname")
-
-# Connect to the database
-try:
-    connection = psycopg2.connect(
-        user=USER,
-        password=PASSWORD,
-        host=HOST,
-        port=PORT,
-        dbname=DBNAME
-    )
-    print("Connection successful!")
-    
-    # Create a cursor to execute SQL queries
-    cursor = connection.cursor()
-    
-    # Example query
-    cursor.execute("SELECT NOW();")
-    result = cursor.fetchone()
-    print("Current Time:", result)
-
-    # Close the cursor and connection
-    cursor.close()
-    connection.close()
-    print("Connection closed.")
-
-except Exception as e:
-    print(f"Failed to connect: {e}")
-# Fin de config suggérée par Supabase
 
 # Configure logging
 logging.basicConfig(
@@ -233,10 +195,6 @@ class EngagementBot(commands.Bot):
 
 async def main():
     """Main function to run the bot"""
-    # Load environment variables
-    from dotenv import load_dotenv
-    load_dotenv()
-    
     token = os.getenv('DISCORD_TOKEN')
     if not token:
         logger.error("DISCORD_TOKEN not found in environment variables!")
@@ -253,5 +211,10 @@ async def main():
     finally:
         await bot.close()
 
-if __name__ == "__main__":
+def run_bot():
+    """Function for Railway deployment"""
+    import asyncio
     asyncio.run(main())
+
+if __name__ == "__main__":
+    run_bot()

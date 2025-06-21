@@ -1,8 +1,6 @@
-discord.py>=2.3.0
-supabase>=2.0.0
-python-dotenv>=1.0.0
-tweepy>=4.14.0
-asyncio
-logging
-datetime
-typing
+discord.py==2.3.2
+supabase==2.3.0
+python-dotenv==1.0.1
+tweepy==4.14.0
+requests==2.31.0
+psycopg2-binary==2.9.9

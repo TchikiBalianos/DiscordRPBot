@@ -1,11 +1,10 @@
 import os
 import logging
 import json
-import asyncio
+import time
 from typing import Optional, Dict, List, Any, Tuple
 from supabase import create_client, Client
 from datetime import datetime, date
-import time
 
 logger = logging.getLogger('EngagementBot')
 
@@ -29,9 +28,12 @@ class SupabaseDatabase:
             self.supabase = create_client(url, key)
             logger.info("Supabase client initialized successfully")
             
-            # Test de connexion
-            result = self.supabase.table('users').select('count').limit(1).execute()
-            logger.info("Supabase connection test successful")
+            # Test de connexion simple
+            try:
+                result = self.supabase.table('users').select('count', count='exact').limit(1).execute()
+                logger.info("Supabase connection test successful")
+            except Exception as test_error:
+                logger.warning(f"Supabase test query failed: {test_error}")
             
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}", exc_info=True)
