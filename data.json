@@ -1,0 +1,193 @@
+{
+  "users": {
+    "581093278351360033": {
+      "points": 2
+    },
+    "1186142302800982037": {
+      "points": 2
+    },
+    "250313844554072064": {
+      "points": 1010
+    },
+    "1025336880365064224": {
+      "points": 0
+    },
+    "1099047603506786386": {
+      "points": 0
+    },
+    "95267830739509248": {
+      "points": 0
+    },
+    "500598025186443264": {
+      "points": 0
+    },
+    "1132972549794443384": {
+      "points": 4
+    },
+    "254769988731273217": {
+      "points": 0
+    },
+    "1002653696523522179": {
+      "points": 0
+    },
+    "958090575322705950": {
+      "points": 0
+    },
+    "908092779085836359": {
+      "points": 0
+    }
+  },
+  "rob_cooldowns": {
+    "581093278351360033": 1740658769.424215,
+    "958090575322705950": 1740602153.922068,
+    "250313844554072064": 1740602207.730772,
+    "254769988731273217": 1740602268.717671
+  },
+  "voice_sessions": {
+    "701500369620041829": {
+      "start_time": 1740601370.552223,
+      "event_name": null
+    }
+  },
+  "twitter_links": {
+    "581093278351360033": "@faroyevana"
+  },
+  "twitter_stats": {
+    "581093278351360033": {
+      "likes": 0,
+      "month": 2,
+      "year": 2025,
+      "last_reset": 1740566905.02256
+    }
+  },
+  "prison_times": {
+    "581093278351360033": 1740603549.454743,
+    "254769988731273217": 1740602762.707452
+  },
+  "last_robbers": {
+    "581093278351360033": "958090575322705950"
+  },
+  "last_work": {
+    "581093278351360033": 1740577086.924777,
+    "958090575322705950": 1740602432.527638,
+    "908092779085836359": 1740658831.088598,
+    "250313844554072064": 1750387952.466727
+  },
+  "active_heist": {
+    "leader": "581093278351360033",
+    "participants": [
+      "581093278351360033"
+    ],
+    "start_time": 1740577628.407229
+  },
+  "prison_roles": {
+    "581093278351360033": "bibliothecaire",
+    "254769988731273217": "cuisinier"
+  },
+  "prison_activities": {},
+  "trials": {
+    "581093278351360033": {
+      "plea": "please help me",
+      "end_time": 1740578578.055113,
+      "votes": {}
+    }
+  },
+  "trial_cooldowns": {
+    "581093278351360033": 1740578278.055113
+  },
+  "escape_cooldowns": {},
+  "combats": {
+    "7016d8f7-28b6-4774-87ea-8f1cab2fd2c2": {
+      "challenger": "581093278351360033",
+      "target": "908092779085836359",
+      "bet": 100,
+      "start_time": 1740658850.750721,
+      "accepted": false,
+      "health": {
+        "581093278351360033": 100,
+        "908092779085836359": 100
+      },
+      "moves": []
+    }
+  },
+  "daily_commands": {
+    "581093278351360033": {
+      "2025-02-26": {},
+      "2025-02-27": {}
+    },
+    "958090575322705950": {
+      "2025-02-26": {}
+    },
+    "250313844554072064": {
+      "2025-02-26": {},
+      "2025-06-20": {
+        "work": 1
+      }
+    },
+    "254769988731273217": {
+      "2025-02-26": {}
+    },
+    "908092779085836359": {
+      "2025-02-27": {}
+    }
+  },
+  "lottery_tickets": {},
+  "lottery_jackpot": 1000,
+  "race_bets": {},
+  "roulette_cooldowns": {},
+  "losing_streaks": {},
+  "special_items": {},
+  "drug_deal_cooldowns": {
+    "581093278351360033": 1740584824.336731
+  },
+  "inventories": {
+    "250313844554072064": [
+      "lockpick"
+    ]
+  },
+  "gangs": {},
+  "gang_wars": {},
+  "territories": {
+    "downtown": {
+      "name": "Centre-ville",
+      "description": "Le c\u0153ur \u00e9conomique de la ville",
+      "income_bonus": 1000,
+      "controlled_by": null,
+      "defense_points": 0,
+      "capture_cost": 5000
+    },
+    "docks": {
+      "name": "Les Docks",
+      "description": "Zone portuaire strat\u00e9gique",
+      "income_bonus": 800,
+      "controlled_by": null,
+      "defense_points": 0,
+      "capture_cost": 4000
+    },
+    "industrial": {
+      "name": "Zone Industrielle",
+      "description": "Parfait pour les op\u00e9rations ill\u00e9gales",
+      "income_bonus": 600,
+      "controlled_by": null,
+      "defense_points": 0,
+      "capture_cost": 3000
+    },
+    "suburbs": {
+      "name": "Banlieues",
+      "description": "Territoire r\u00e9sidentiel calme",
+      "income_bonus": 400,
+      "controlled_by": null,
+      "defense_points": 0,
+      "capture_cost": 2000
+    },
+    "casino_district": {
+      "name": "District du Casino",
+      "description": "Zone de divertissement lucrative",
+      "income_bonus": 1200,
+      "controlled_by": null,
+      "defense_points": 0,
+      "capture_cost": 6000
+    }
+  },
+  "gang_members": {}
+}
