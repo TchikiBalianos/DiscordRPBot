@@ -19,6 +19,8 @@ A Discord bot that tracks user engagement across Discord and Twitter platforms, 
 - `!linktwitter @username` - Link your Twitter account
 - `!twitterpoints` - Check your Twitter engagement points
 - `!bothelp` - Show all available commands
+- `!inventory` — Affiche votre inventaire d’objets
+- `!trade @user <item_id>` — Propose un échange d’objet à un autre joueur
 
 ## Setup
 

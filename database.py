@@ -1,11 +1,14 @@
-import json
+import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import json
 import uuid
 from datetime import datetime
 import logging
 import stat
 from typing import Dict, Any, Optional
-from config import SHOP_ITEMS_NEW  # Ajout de l'import manquant
+from config import SHOP_ITEMS_NEW
 
 logger = logging.getLogger('EngagementBot')
 
@@ -13,8 +16,14 @@ class Database:
     def __init__(self):
         """Initialize database with empty structure and load data"""
         logger.info("Initializing database...")
+        # Initialize empty structure first
         self._initialize_empty_structure()
-        self.load_data()
+        
+        if not os.path.isfile('data.json'):
+            logger.warning("data.json not found, using empty database...")
+        else:
+            logger.info("data.json found, loading data...")
+            self.load_data()
         logger.info("Database initialization complete")
 
     def _initialize_empty_structure(self):
@@ -40,7 +49,8 @@ class Database:
             'race_bets': {},         # Track race bets
             'roulette_cooldowns': {}, # Track roulette cooldowns
             'losing_streaks': {},     # Track losing streaks for games
-            'special_items': {}       # Track special items (NFTs, etc.)
+            'special_items': {},       # Track special items (NFTs, etc.)
+            'inventories': {}         # Track user inventories
         }
         logger.info("Empty data structure initialized")
 
@@ -65,9 +75,16 @@ class Database:
                         logger.info("Successfully read data.json")
 
                         # Ensure all required keys exist with proper types
-                        for key in self.data.keys():
-                            if key not in loaded_data or not isinstance(loaded_data[key], dict):
-                                logger.warning(f"Missing or invalid key {key} in loaded data, using empty dict")
+                        required_keys = list(self.data.keys())
+                        for key in required_keys:
+                            if key not in loaded_data:
+                                logger.warning(f"Missing key {key} in loaded data, using empty dict")
+                                loaded_data[key] = {} if key != 'lottery_jackpot' else 1000
+                            elif key == 'lottery_jackpot' and not isinstance(loaded_data[key], (int, float)):
+                                logger.warning(f"Invalid type for {key}, resetting to default")
+                                loaded_data[key] = 1000
+                            elif key != 'lottery_jackpot' and not isinstance(loaded_data[key], dict):
+                                logger.warning(f"Invalid type for {key}, using empty dict")
                                 loaded_data[key] = {}
 
                         self.data = loaded_data
@@ -81,14 +98,7 @@ class Database:
             else:
                 logger.info("No existing data.json found, creating new file with default structure")
                 # Create the data.json file with proper permissions
-                try:
-                    with open('data.json', 'w') as f:
-                        json.dump(self.data, f, indent=2)
-                    os.chmod('data.json', stat.S_IRUSR | stat.S_IWUSR)
-                    logger.info("Successfully created new data.json file")
-                except Exception as e:
-                    logger.error(f"Error creating data.json: {e}", exc_info=True)
-                    raise RuntimeError(f"Failed to create data.json: {str(e)}")
+                self.save_data()
 
         except Exception as e:
             logger.error(f"Error loading data: {e}", exc_info=True)
@@ -105,12 +115,19 @@ class Database:
                 raise ValueError("Data must be a dictionary")
 
             # Ensure all required sections exist
-            for key in ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats', 'daily_commands', 'lottery_tickets', 'lottery_jackpot', 'race_bets', 'roulette_cooldowns', 'losing_streaks', 'special_items']:
+            required_sections = ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats', 'daily_commands', 'lottery_tickets', 'race_bets', 'roulette_cooldowns', 'losing_streaks', 'special_items', 'inventories']
+            for key in required_sections:
                 if key not in self.data:
                     logger.warning(f"Missing key {key} in data, initializing empty")
                     self.data[key] = {}
                 if not isinstance(self.data[key], dict):
                     raise ValueError(f"Data[{key}] must be a dictionary")
+            
+            # Handle lottery_jackpot separately as it's not a dict
+            if 'lottery_jackpot' not in self.data:
+                self.data['lottery_jackpot'] = 1000
+            if not isinstance(self.data['lottery_jackpot'], (int, float)):
+                raise ValueError("Data[lottery_jackpot] must be a number")
 
             # Ensure the directory is writable
             try:
@@ -377,12 +394,17 @@ class Database:
     def add_item_to_inventory(self, user_id: str, item_id: str):
         """Add an item to user's inventory"""
         user_id = str(user_id)
-        if 'inventories' not in self.data:
-            self.data['inventories'] = {}
-        if user_id not in self.data['inventories']:
-            self.data['inventories'][user_id] = []
-        self.data['inventories'][user_id].append(item_id)
+        inv = self.data["inventories"].setdefault(str(user_id), [])
+        inv.append(item_id)
         self.save_data()
+
+    def remove_item_from_inventory(self, user_id: str, item_id: str):
+        inv = self.data["inventories"].setdefault(str(user_id), [])
+        if item_id in inv:
+            inv.remove(item_id)
+            self.save_data()
+            return True
+        return False
 
     def get_inventory(self, user_id: str):
         """Get user's inventory"""
@@ -732,12 +754,17 @@ class Database:
     def add_item_to_inventory(self, user_id: str, item_id: str):
         """Add an item to user's inventory"""
         user_id = str(user_id)
-        if 'inventories' not in self.data:
-            self.data['inventories'] = {}
-        if user_id not in self.data['inventories']:
-            self.data['inventories'][user_id] = []
-        self.data['inventories'][user_id].append(item_id)
+        inv = self.data["inventories"].setdefault(str(user_id), [])
+        inv.append(item_id)
         self.save_data()
+
+    def remove_item_from_inventory(self, user_id: str, item_id: str):
+        inv = self.data["inventories"].setdefault(str(user_id), [])
+        if item_id in inv:
+            inv.remove(item_id)
+            self.save_data()
+            return True
+        return False
 
     def get_inventory(self, user_id: str):
         """Get user's inventory"""
