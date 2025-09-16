@@ -176,6 +176,27 @@ class SupabaseDatabase:
             
         except Exception as e:
             logger.error(f"Error removing cooldown: {e}", exc_info=True)
+
+    # === COMMAND COOLDOWNS (TECH Brief Implementation) ===
+    
+    def set_command_cooldown(self, user_id: str, command_name: str, cooldown_seconds: int):
+        """Set command cooldown according to TECH Brief specs"""
+        cooldown_until = time.time() + cooldown_seconds
+        self.set_cooldown(f"command_{command_name}", user_id, cooldown_until)
+    
+    def get_command_cooldown(self, user_id: str, command_name: str) -> int:
+        """Get remaining cooldown time in seconds for a command"""
+        try:
+            cooldown_until = self.get_cooldown(f"command_{command_name}", user_id)
+            if cooldown_until is None:
+                return 0
+            
+            remaining = int(cooldown_until - time.time())
+            return max(0, remaining)  # Ne jamais retourner de valeur négative
+            
+        except Exception as e:
+            logger.error(f"Error getting command cooldown: {e}", exc_info=True)
+            return 0
     
     # === VOICE SESSIONS ===
     

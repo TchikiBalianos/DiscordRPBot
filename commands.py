@@ -50,6 +50,57 @@ def check_daily_limit(command_name):
             return True  # En cas d'erreur, permettre l'exécution
     return commands.check(predicate)
 
+def check_cooldown_and_limit(command_name):
+    """Decorator to check both cooldown and daily command limits selon TECH Brief"""
+    async def predicate(ctx):
+        try:
+            # 1. Vérifier le cooldown d'abord
+            cooldown_seconds = COMMAND_COOLDOWNS.get(command_name, 0)
+            if cooldown_seconds > 0:
+                # Accéder à la base de données pour le cooldown
+                db = None
+                if hasattr(ctx.bot, 'db'):
+                    db = ctx.bot.db
+                elif hasattr(ctx.bot, 'point_system') and hasattr(ctx.bot.point_system, 'db'):
+                    db = ctx.bot.point_system.db
+                
+                if db and hasattr(db, 'get_command_cooldown'):
+                    remaining_cooldown = db.get_command_cooldown(str(ctx.author.id), command_name)
+                    if remaining_cooldown > 0:
+                        hours = remaining_cooldown // 3600
+                        minutes = (remaining_cooldown % 3600) // 60
+                        await ctx.send(f"⏰ Tu dois attendre encore {hours}h {minutes}m avant de réutiliser cette commande.")
+                        return False
+            
+            # 2. Vérifier la limite quotidienne
+            if hasattr(ctx.bot, 'db'):
+                usage = ctx.bot.db.get_daily_usage(str(ctx.author.id), command_name)
+            elif hasattr(ctx.bot, 'point_system') and hasattr(ctx.bot.point_system, 'db'):
+                usage = ctx.bot.point_system.db.get_daily_usage(str(ctx.author.id), command_name)
+            else:
+                logger.warning(f"Impossible d'accéder à la base de données pour {command_name}")
+                return True
+                
+            if usage >= DAILY_LIMITS.get(command_name, float('inf')):
+                await ctx.send(f"❌ Tu as atteint la limite quotidienne pour cette commande ({DAILY_LIMITS[command_name]}x par jour)")
+                return False
+            
+            # 3. Si tout est OK, enregistrer l'utilisation et définir le nouveau cooldown
+            if hasattr(ctx.bot, 'db'):
+                ctx.bot.db.increment_daily_usage(str(ctx.author.id), command_name)
+                if cooldown_seconds > 0 and hasattr(ctx.bot.db, 'set_command_cooldown'):
+                    ctx.bot.db.set_command_cooldown(str(ctx.author.id), command_name, cooldown_seconds)
+            elif hasattr(ctx.bot, 'point_system') and hasattr(ctx.bot.point_system, 'db'):
+                ctx.bot.point_system.db.increment_daily_usage(str(ctx.author.id), command_name)
+                if cooldown_seconds > 0 and hasattr(ctx.bot.point_system.db, 'set_command_cooldown'):
+                    ctx.bot.point_system.db.set_command_cooldown(str(ctx.author.id), command_name, cooldown_seconds)
+                
+            return True
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification des cooldowns/limites: {e}", exc_info=True)
+            return True
+    return commands.check(predicate)
+
 class Commands(commands.Cog):
     """Commands cog containing all bot commands"""
 
@@ -116,9 +167,9 @@ class Commands(commands.Cog):
             logger.error(f"Error in ping command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='help', aliases=['commands', 'bothelp'])
+    @commands.command(name='help', aliases=['commands', 'bothelp', 'aide', 'commandes'])
     async def help_command(self, ctx):
-        """Show all available commands"""
+        """Show all available commands / Afficher toutes les commandes disponibles"""
         try:
             embed = discord.Embed(
                 title="🦹 Commandes du Thugz Bot",
@@ -136,12 +187,18 @@ class Commands(commands.Cog):
                     "!inventory": "Voir ton inventaire",
                     "!trade @user <item_id>": "Propose un échange d’objet à un autre joueur"
                 },
-                "🦹 Actions": {
-                    "!rob @user": "Tenter de voler quelqu'un (3x par jour)",
+                "🦹 Actions Spéciales": {
+                    "!steal @user": "Voler quelqu'un (4h cooldown, 5x/jour) [NOUVEAU]",
+                    "!rob @user": "Voler (alias de !steal, compatibilité)",
                     "!revenge": "Se venger de son dernier voleur (1x par jour)",
                     "!heist": "Commencer un braquage (2x par jour)",
-                    "!joinheist": "Rejoindre un braquage",
-                    "!combat @user <mise>": "Engager un combat (5x par jour)"
+                    "!joinheist": "Rejoindre un braquage"
+                },
+                "⚔️ Combat": {
+                    "!fight @user [mise]": "Se battre (6h cooldown, 3x/jour) [NOUVEAU]",
+                    "!duel @user <mise>": "Duel d'honneur (12h cooldown, 2x/jour) [NOUVEAU]", 
+                    "!combat @user <mise>": "Combat général (3h cooldown, 5x/jour)",
+                    "!gift @user <montant>": "Donner des points (1h cooldown, 10x/jour) [NOUVEAU]"
                 },
                 "🏢 Prison": {
                     "!prison": "Voir ton statut en prison",
@@ -191,9 +248,9 @@ class Commands(commands.Cog):
             logger.error(f"Error in help command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='points', aliases=['money', 'balance'])
+    @commands.command(name='points', aliases=['money', 'balance', 'solde', 'argent'])
     async def points_command(self, ctx, member: discord.Member = None):
-        """Check your points or another member's points"""
+        """Check your points or another member's points / Vérifier tes points ou ceux d'un autre membre"""
         try:
             target = member or ctx.author
             points = self.points.db.get_user_points(str(target.id))
@@ -206,10 +263,10 @@ class Commands(commands.Cog):
             logger.error(f"Error in points command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='work', aliases=['travail'])
-    @check_daily_limit('work')
+    @commands.command(name='work', aliases=['travail', 'boulot', 'job'])
+    @check_cooldown_and_limit('work')
     async def work_command(self, ctx):
-        """Do your daily work"""
+        """Do your daily work (TECH Brief: 2h cooldown, max 8x/day) / Faire ton travail quotidien"""
         try:
             success, message = await self.points.daily_work(str(ctx.author.id))
             await ctx.send(message)
@@ -217,19 +274,20 @@ class Commands(commands.Cog):
             logger.error(f"Error in work command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='rob')
-    @check_daily_limit('rob')
-    async def rob_command(self, ctx, target: discord.Member = None):
-        """Rob another member"""
+    @commands.command(name='steal', aliases=['rob', 'voler', 'cambrioler'])  # steal = nouvelle commande selon brief, rob = alias pour compatibilité
+    @check_cooldown_and_limit('steal')
+    async def steal_command(self, ctx, target: discord.Member = None):
+        """Steal from another member (TECH Brief: 4h cooldown, max 5x/day) / Voler un autre membre"""
         try:
             if not target:
-                await ctx.send("❌ Mentionne la personne que tu veux voler! Exemple: `!rob @user`")
+                await ctx.send("❌ Mentionne la personne que tu veux voler! Exemple: `!steal @user`")
                 return
 
             if target.id == ctx.author.id:
                 await ctx.send("❌ Tu ne peux pas te voler toi-même!")
                 return
 
+            # Utiliser les narrations de 'rob' existantes pour compatibilité
             narration = random.choice(COMMAND_NARRATIONS['rob']).format(
                 user=ctx.author.name,
                 target=target.name
@@ -240,7 +298,59 @@ class Commands(commands.Cog):
             success, message = await self.points.try_rob(str(ctx.author.id), str(target.id))
             await ctx.send(message)
         except Exception as e:
-            logger.error(f"Error in rob command: {e}", exc_info=True)
+            logger.error(f"Error in steal command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='gift', aliases=['cadeau', 'give'])
+    @check_cooldown_and_limit('gift')
+    async def gift_command(self, ctx, target: discord.Member = None, amount: int = None):
+        """Give points to another member (TECH Brief: 1h cooldown, max 10x/day)"""
+        try:
+            if not target or amount is None:
+                await ctx.send("❌ Usage: `!gift @user <montant>` - Exemple: `!gift @user 100`")
+                return
+
+            if target.id == ctx.author.id:
+                await ctx.send("❌ Tu ne peux pas te faire un cadeau à toi-même!")
+                return
+
+            if amount <= 0:
+                await ctx.send("❌ Le montant doit être positif!")
+                return
+
+            if amount > 1000:
+                await ctx.send("❌ Tu ne peux pas donner plus de 1000 points à la fois!")
+                return
+
+            # Vérifier si l'utilisateur a assez de points
+            sender_points = self.points.db.get_user_points(str(ctx.author.id))
+            if sender_points < amount:
+                await ctx.send(f"❌ Tu n'as que {sender_points} points! Tu ne peux pas donner {amount} points.")
+                return
+
+            # Effectuer le transfert
+            success_remove = self.points.remove_points(str(ctx.author.id), amount)
+            if success_remove:
+                self.points.add_points(str(target.id), amount, f"Cadeau de {ctx.author.name}")
+                
+                embed = discord.Embed(
+                    title="🎁 Cadeau envoyé!",
+                    description=f"{ctx.author.mention} a donné **{amount} points** à {target.mention}!",
+                    color=0x00FF00
+                )
+                embed.add_field(name="Expéditeur", value=ctx.author.name, inline=True)
+                embed.add_field(name="Destinataire", value=target.name, inline=True)
+                embed.add_field(name="Montant", value=f"{amount} points", inline=True)
+                
+                await ctx.send(embed=embed)
+                
+                # Log de l'activité
+                logger.info(f"Gift: {ctx.author.name} gave {amount} points to {target.name}")
+            else:
+                await ctx.send("❌ Erreur lors du transfert des points.")
+
+        except Exception as e:
+            logger.error(f"Error in gift command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='revenge', aliases=['vengeance'])
@@ -314,10 +424,10 @@ class Commands(commands.Cog):
             logger.error(f"Error in join_heist command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='combat', aliases=['fight', 'duel'])
-    @check_daily_limit('combat')
+    @commands.command(name='combat', aliases=['bataille', 'fight_general'])
+    @check_cooldown_and_limit('combat')
     async def combat_command(self, ctx, target: discord.Member = None, bet: int = None):
-        """Start a combat with another member"""
+        """Start a general combat with another member (3h cooldown, max 5x/day) / Combat général"""
         try:
             if not target or not bet:
                 await ctx.send("❌ Usage: !combat @user <mise>")
@@ -349,9 +459,74 @@ class Commands(commands.Cog):
             logger.error(f"Error in combat command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='prison', aliases=['status'])
+    @commands.command(name='fight', aliases=['bagarre'])
+    @check_cooldown_and_limit('fight')
+    async def fight_command(self, ctx, target: discord.Member = None, bet: int = None):
+        """Fight another member (TECH Brief: 6h cooldown, max 3x/day)"""
+        try:
+            if not target:
+                await ctx.send("❌ Usage: !fight @user [mise_optionnelle]")
+                return
+
+            if target.id == ctx.author.id:
+                await ctx.send("❌ Tu ne peux pas te battre contre toi-même!")
+                return
+
+            # Default bet si non spécifié
+            if bet is None:
+                bet = 100
+
+            await ctx.send(f"⚔️ {ctx.author.mention} défie {target.mention} en combat singulier!")
+            await asyncio.sleep(1)
+
+            success, message = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
+            if success:
+                combat_msg = await ctx.send(message)
+                for move in COMBAT_MOVES:
+                    await combat_msg.add_reaction(move)
+            else:
+                await ctx.send(message)
+
+        except Exception as e:
+            logger.error(f"Error in fight command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='duel', aliases=['duel_honneur'])
+    @check_cooldown_and_limit('duel')
+    async def duel_command(self, ctx, target: discord.Member = None, bet: int = None):
+        """Challenge someone to an honor duel (TECH Brief: 12h cooldown, max 2x/day) / Défier en duel d'honneur"""
+        try:
+            if not target or not bet:
+                await ctx.send("❌ Usage: !duel @user <mise> - Duel d'honneur avec mise obligatoire!")
+                return
+
+            if target.id == ctx.author.id:
+                await ctx.send("❌ Tu ne peux pas te défier toi-même en duel!")
+                return
+
+            if bet < 200:
+                await ctx.send("❌ La mise minimale pour un duel d'honneur est de 200 points!")
+                return
+
+            await ctx.send(f"🤺 {ctx.author.mention} défie {target.mention} en DUEL D'HONNEUR pour {bet} points!")
+            await ctx.send("*Les duels sont des combats prestigieux avec des enjeux élevés...*")
+            await asyncio.sleep(2)
+
+            success, message = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
+            if success:
+                combat_msg = await ctx.send(message)
+                for move in COMBAT_MOVES:
+                    await combat_msg.add_reaction(move)
+            else:
+                await ctx.send(message)
+
+        except Exception as e:
+            logger.error(f"Error in duel command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='prison', aliases=['status', 'statut', 'cellule'])
     async def prison_status_command(self, ctx, member: discord.Member = None):
-        """Check prison status"""
+        """Check prison status / Vérifier le statut de prison"""
         try:
             target = member or ctx.author
             status = await self.points.get_prison_status(str(target.id))
@@ -377,9 +552,9 @@ class Commands(commands.Cog):
             logger.error(f"Error in prison status command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='activity')
+    @commands.command(name='activity', aliases=['activite', 'action', 'faire'])
     async def prison_activity_command(self, ctx, activity_name: str = None):
-        """Do a prison activity or list available activities"""
+        """Do a prison activity or list available activities / Faire une activité en prison"""
         try:
             if not activity_name:
                 embed = discord.Embed(
@@ -405,9 +580,9 @@ class Commands(commands.Cog):
             logger.error(f"Error in prison activity command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='tribunal')
+    @commands.command(name='tribunal', aliases=['proces', 'cour', 'justice'])
     async def tribunal_command(self, ctx, *, plea: str = None):
-        """Request a trial with a plea"""
+        """Request a trial with a plea / Demander un procès avec plaidoyer"""
         try:
             if not plea:
                 await ctx.send("❌ Tu dois inclure un plaidoyer! Exemple: `!tribunal Je suis innocent!`")
@@ -479,9 +654,9 @@ class Commands(commands.Cog):
             logger.error(f"Error in buy command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='inventory')
+    @commands.command(name='inventory', aliases=['inventaire', 'inv', 'objets'])
     async def inventory(self, ctx):
-        """Affiche l'inventaire de l'utilisateur."""
+        """Show your inventory / Affiche l'inventaire de l'utilisateur."""
         inv = self.points.db.get_inventory(str(ctx.author.id))
         if not inv:
             await ctx.send("Votre inventaire est vide.")
@@ -489,9 +664,9 @@ class Commands(commands.Cog):
             items = "\n".join(f"- {item_id}" for item_id in inv)
             await ctx.send(f"**Votre inventaire :**\n{items}")
 
-    @commands.command(name='trade')
+    @commands.command(name='trade', aliases=['echanger', 'troquer', 'echange'])
     async def trade(self, ctx, member: discord.Member, my_item_id: str):
-        """Propose un échange d'objet à un autre joueur."""
+        """Trade an item with another player / Propose un échange d'objet à un autre joueur."""
         author_id = str(ctx.author.id)
         target_id = str(member.id)
         db = self.points.db
@@ -559,10 +734,10 @@ class Commands(commands.Cog):
         else:
             await ctx.send("Échange refusé.")
 
-    @commands.command(name='addpoints')
+    @commands.command(name='addpoints', aliases=['ajouterpoints', 'donnerpoints'])
     @is_staff()
     async def add_points(self, ctx, member: discord.Member = None, amount: int = None):
-        """[STAFF] Add points to a member"""
+        """[STAFF] Add points to a member / [STAFF] Ajouter des points à un membre"""
         try:
             if not member or amount is None:
                 await ctx.send("❌ Usage: !addpoints @user <montant>")
@@ -579,10 +754,10 @@ class Commands(commands.Cog):
             logger.error(f"Error in add_points command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='removepoints')
+    @commands.command(name='removepoints', aliases=['retirerpoints', 'enleverpoints'])
     @is_staff()
     async def remove_points(self, ctx, member: discord.Member = None, amount: int = None):
-        """[STAFF] Remove points from a member"""
+        """[STAFF] Remove points from a member / [STAFF] Retirer des points à un membre"""
         try:
             if not member or amount is None:
                 await ctx.send("❌ Usage: !removepoints @user <montant>")
@@ -603,10 +778,10 @@ class Commands(commands.Cog):
             logger.error(f"Error in remove_points command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='linktwitter')
+    @commands.command(name='linktwitter', aliases=['liertwitter', 'connecttwitter'])
     @commands.cooldown(1, 900, commands.BucketType.user)  # 1 fois par 15 minutes par utilisateur
     async def link_twitter(self, ctx, username: str):
-        """Lier un compte Twitter (limité à 1 fois par 15min)"""
+        """Link a Twitter account (limited to 1 time per 15min) / Lier un compte Twitter"""
         try:
             if not self.twitter_handler.is_available():
                 await ctx.send("❌ Service Twitter temporairement indisponible.")
@@ -669,10 +844,10 @@ class Commands(commands.Cog):
             logger.error(f"Error in link_twitter command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite lors de la liaison du compte Twitter.")
 
-    @commands.command(name='twitterstatus')
+    @commands.command(name='twitterstatus', aliases=['statustwitter', 'statut_x'])
     @commands.has_permissions(administrator=True)
     async def twitter_status(self, ctx):
-        """Vérifier l'état du service Twitter (Admin seulement)"""
+        """Check Twitter service status (Admin only) / Vérifier l'état du service Twitter (Admin seulement)"""
         try:
             # Vérifier la santé
             is_healthy, health_message = await self.twitter_handler.health_check()
@@ -722,10 +897,10 @@ class Commands(commands.Cog):
             logger.error(f"Error in twitter_status command: {e}", exc_info=True)
             await ctx.send("❌ Erreur lors de la vérification du statut Twitter.")
 
-    @commands.command(name='twitterqueue')
+    @commands.command(name='twitterqueue', aliases=['queuetwitter', 'file_x'])
     @commands.has_permissions(administrator=True)
     async def twitter_queue(self, ctx):
-        """Voir la file d'attente Twitter (Admin seulement)"""
+        """View Twitter queue (Admin only) / Voir la file d'attente Twitter (Admin seulement)"""
         try:
             queue_info = await self.twitter_handler.queue_info()
             
@@ -767,9 +942,9 @@ class Commands(commands.Cog):
             logger.error(f"Error in twitter_queue command: {e}", exc_info=True)
             await ctx.send("❌ Erreur lors de la récupération des informations de queue.")
 
-    @commands.command(name='unlinktwitter')
+    @commands.command(name='unlinktwitter', aliases=['deconnectertwitter', 'delier_x'])
     async def unlink_twitter(self, ctx):
-        """Délier le compte Twitter"""
+        """Unlink Twitter account / Délier le compte Twitter"""
         try:
             user_data = self.point_system.database.get_user_data(str(ctx.author.id))
             

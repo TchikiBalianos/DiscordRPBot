@@ -15,20 +15,35 @@ POINTS_TWITTER_LIKE = 5
 POINTS_TWITTER_RT = 10
 POINTS_TWITTER_COMMENT = 15
 
-# Daily Command Limits Configuration
+# Daily Command Limits Configuration (selon TECH Brief specs)
 DAILY_LIMITS = {
-    "rob": 3,        # 3 vols par jour
+    "rob": 5,        # 5 vols par jour (steal selon brief)
+    "steal": 5,      # 5 vols par jour (nouvelle commande)
     "deal": 5,       # 5 deals par jour
     "heist": 2,      # 2 braquages par jour
-    "combat": 5,     # 5 combats par jour
+    "combat": 5,     # 5 combats par jour (combat général)
+    "fight": 3,      # 3 combats par jour (fight selon brief)
+    "duel": 2,       # 2 duels par jour (duel selon brief)
     "escape": 2,     # 2 tentatives d'évasion par jour
     "revenge": 1,    # 1 vengeance par jour
-    "work": 1,       # 1 travail par jour
+    "work": 8,       # 8 travaux par jour (selon brief: max 8 times per day)
+    "gift": 10,      # 10 cadeaux par jour (nouvelle commande)
     "roulette": 10,  # 10 parties de roulette par jour
     "race": 15,      # 15 courses par jour
     "blackjack": 20, # 20 parties de blackjack par jour
     "treasure": 5,   # 5 chasses au trésor par jour
     "dice": 10       # 10 duels de dés par jour
+}
+
+# Command Cooldowns Configuration (selon TECH Brief specs)
+COMMAND_COOLDOWNS = {
+    "work": 2 * 3600,      # 2 heures entre chaque !work
+    "steal": 4 * 3600,     # 4 heures entre chaque !steal
+    "rob": 4 * 3600,       # 4 heures entre chaque !rob (compatibilité)
+    "fight": 6 * 3600,     # 6 heures entre chaque !fight
+    "duel": 12 * 3600,     # 12 heures entre chaque !duel
+    "gift": 1 * 3600,      # 1 heure entre chaque !gift
+    "combat": 3 * 3600,    # 3 heures entre chaque !combat (général)
 }
 
 # Russian Roulette Configuration
