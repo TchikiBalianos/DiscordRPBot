@@ -1,15 +1,21 @@
-# render.yaml - Configuration optionnelle pour Render.com
+# render.yaml - Configuration pour Render.com avec Python 3.12.6
 services:
 - type: web
   name: discord-bot-thugz
   env: python
   plan: free
   region: oregon
-  buildCommand: pip install -r requirements.txt
+  # Force Python 3.12.6 pour éviter l'erreur audioop de Python 3.13
+  runtime: python-3.12.6
+  buildCommand: |
+    echo "Using Python version:"
+    python --version
+    pip install --upgrade pip
+    pip install -r requirements.txt
   startCommand: python start.py
   envVars:
   - key: ENABLE_HEALTH_MONITOR
     value: true
   - key: PYTHON_VERSION
-    value: 3.12.0
+    value: 3.12.6
   healthCheckPath: /health

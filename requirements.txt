@@ -8,5 +8,5 @@ psycopg2-binary==2.9.9
 fastapi==0.104.1
 uvicorn==0.24.0
 psutil==5.9.6
-# Phase 4D: Testing dependencies
-httpx>=0.25.0
+# Phase 4D: Testing dependencies - httpx managed by supabase
+# httpx will be installed automatically as supabase dependency
