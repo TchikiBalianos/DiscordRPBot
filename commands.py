@@ -1057,6 +1057,256 @@ class Commands(commands.Cog):
             logger.error(f"Error in remove_points command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
+    # === NOUVELLES COMMANDES ADMIN AVANCÉES (TECH Brief Phase 3B) ===
+
+    @commands.command(name='additem', aliases=['ajouteritem', 'donneritem'])
+    @is_staff()
+    async def admin_add_item(self, ctx, member: discord.Member = None, item_id: str = None, quantity: int = 1, *, reason: str = ""):
+        """[ADMIN] Add item(s) to a user's inventory / [ADMIN] Ajouter objet(s) à l'inventaire d'un utilisateur"""
+        try:
+            if not member or not item_id:
+                await ctx.send("❌ Usage: !additem @user <item_id> [quantité] [raison]")
+                return
+
+            if quantity <= 0 or quantity > ADMIN_CONFIG['max_items_per_action']:
+                await ctx.send(f"❌ Quantité invalide! Maximum {ADMIN_CONFIG['max_items_per_action']} par action.")
+                return
+
+            # Vérifier si l'item nécessite des permissions spéciales
+            if item_id in ADMIN_CONFIG['restricted_items'] and not ctx.author.guild_permissions.administrator:
+                await ctx.send(f"❌ L'item '{item_id}' nécessite des permissions d'administrateur!")
+                return
+
+            # Ajouter les items
+            success = self.point_system.database.admin_add_item(
+                str(ctx.author.id), 
+                str(member.id), 
+                item_id, 
+                quantity, 
+                reason
+            )
+
+            if success:
+                embed = discord.Embed(
+                    title="📦 Items Ajoutés",
+                    description=f"**{quantity}x {item_id}** ajouté(s) à l'inventaire de {member.display_name}",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="👤 Administrateur", value=ctx.author.display_name, inline=True)
+                embed.add_field(name="🎯 Cible", value=member.display_name, inline=True)
+                embed.add_field(name="📝 Quantité", value=f"{quantity}x", inline=True)
+                
+                if reason:
+                    embed.add_field(name="📋 Raison", value=reason, inline=False)
+                
+                await ctx.send(embed=embed)
+                
+                # Notification à l'utilisateur cible
+                try:
+                    await member.send(f"🎁 Tu as reçu **{quantity}x {item_id}** de la part de l'administration!\nRaison: {reason or 'Non spécifiée'}")
+                except:
+                    pass  # Si les DM sont fermés
+            else:
+                await ctx.send("❌ Échec de l'ajout d'items. Vérifiez les logs.")
+
+        except Exception as e:
+            logger.error(f"Error in admin_add_item command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='removeitem', aliases=['retireritem', 'enleveritem'])
+    @is_staff()
+    async def admin_remove_item(self, ctx, member: discord.Member = None, item_id: str = None, quantity: int = 1, *, reason: str = ""):
+        """[ADMIN] Remove item(s) from a user's inventory / [ADMIN] Retirer objet(s) de l'inventaire d'un utilisateur"""
+        try:
+            if not member or not item_id:
+                await ctx.send("❌ Usage: !removeitem @user <item_id> [quantité] [raison]")
+                return
+
+            if quantity <= 0 or quantity > ADMIN_CONFIG['max_items_per_action']:
+                await ctx.send(f"❌ Quantité invalide! Maximum {ADMIN_CONFIG['max_items_per_action']} par action.")
+                return
+
+            # Vérifier l'inventaire actuel
+            current_inventory = self.point_system.database.get_inventory(str(member.id))
+            current_count = current_inventory.count(item_id)
+            
+            if current_count == 0:
+                await ctx.send(f"❌ {member.display_name} ne possède pas d'item '{item_id}'!")
+                return
+
+            # Retirer les items
+            success, items_removed = self.point_system.database.admin_remove_item(
+                str(ctx.author.id), 
+                str(member.id), 
+                item_id, 
+                quantity, 
+                reason
+            )
+
+            if success:
+                embed = discord.Embed(
+                    title="📦 Items Retirés",
+                    description=f"**{items_removed}x {item_id}** retiré(s) de l'inventaire de {member.display_name}",
+                    color=discord.Color.orange()
+                )
+                embed.add_field(name="👤 Administrateur", value=ctx.author.display_name, inline=True)
+                embed.add_field(name="🎯 Cible", value=member.display_name, inline=True)
+                embed.add_field(name="📝 Quantité", value=f"{items_removed}x (demandé: {quantity}x)", inline=True)
+                
+                if reason:
+                    embed.add_field(name="📋 Raison", value=reason, inline=False)
+                
+                await ctx.send(embed=embed)
+                
+                # Notification à l'utilisateur cible
+                try:
+                    await member.send(f"⚠️ **{items_removed}x {item_id}** ont été retirés de ton inventaire par l'administration.\nRaison: {reason or 'Non spécifiée'}")
+                except:
+                    pass  # Si les DM sont fermés
+            else:
+                await ctx.send("❌ Échec du retrait d'items. Vérifiez les logs.")
+
+        except Exception as e:
+            logger.error(f"Error in admin_remove_item command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='promote', aliases=['promouvoir', 'upgrader'])
+    @is_staff()
+    async def admin_promote(self, ctx, member: discord.Member = None, new_role: str = None, *, reason: str = ""):
+        """[ADMIN] Promote a user to a higher role / [ADMIN] Promouvoir un utilisateur à un rôle supérieur"""
+        try:
+            if not member or not new_role:
+                await ctx.send("❌ Usage: !promote @user <role> [raison]")
+                available_roles = ", ".join(ADMIN_CONFIG['promotable_roles'])
+                await ctx.send(f"📋 Rôles disponibles: {available_roles}")
+                return
+
+            new_role = new_role.lower()
+            
+            # Vérifier si le rôle est promouvable
+            if new_role not in ADMIN_CONFIG['promotable_roles']:
+                await ctx.send(f"❌ Rôle '{new_role}' non autorisé pour promotion!")
+                available_roles = ", ".join(ADMIN_CONFIG['promotable_roles'])
+                await ctx.send(f"📋 Rôles autorisés: {available_roles}")
+                return
+
+            # Vérifier le rôle actuel
+            current_role = self.point_system.database.get_user_role(str(member.id))
+            hierarchy = ADMIN_CONFIG['user_roles_hierarchy']
+            
+            current_level = hierarchy.index(current_role) if current_role in hierarchy else 0
+            new_level = hierarchy.index(new_role) if new_role in hierarchy else 0
+            
+            if new_level <= current_level:
+                await ctx.send(f"❌ {member.display_name} est déjà '{current_role}' ou supérieur!")
+                return
+
+            # Effectuer la promotion
+            success = self.point_system.database.admin_set_user_role(
+                str(ctx.author.id), 
+                str(member.id), 
+                new_role, 
+                reason
+            )
+
+            if success:
+                embed = discord.Embed(
+                    title="⬆️ Promotion Effectuée",
+                    description=f"**{member.display_name}** a été promu(e)!",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="👤 Administrateur", value=ctx.author.display_name, inline=True)
+                embed.add_field(name="🎯 Utilisateur", value=member.display_name, inline=True)
+                embed.add_field(name="📊 Changement", value=f"{current_role} → {new_role}", inline=True)
+                
+                if reason:
+                    embed.add_field(name="📋 Raison", value=reason, inline=False)
+                
+                await ctx.send(embed=embed)
+                
+                # Notification à l'utilisateur
+                try:
+                    await member.send(f"🎉 Félicitations! Tu as été promu(e) au rôle **{new_role}** par l'administration!\nRaison: {reason or 'Non spécifiée'}")
+                except:
+                    pass  # Si les DM sont fermés
+            else:
+                await ctx.send("❌ Échec de la promotion. Vérifiez les logs.")
+
+        except Exception as e:
+            logger.error(f"Error in admin_promote command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @commands.command(name='demote', aliases=['retrograder', 'downgrade'])
+    @is_staff()
+    async def admin_demote(self, ctx, member: discord.Member = None, new_role: str = None, *, reason: str = ""):
+        """[ADMIN] Demote a user to a lower role / [ADMIN] Rétrograder un utilisateur à un rôle inférieur"""
+        try:
+            if not member or not new_role:
+                await ctx.send("❌ Usage: !demote @user <role> [raison]")
+                available_roles = ", ".join(ADMIN_CONFIG['demotable_roles'])
+                await ctx.send(f"📋 Rôles disponibles: {available_roles}")
+                return
+
+            new_role = new_role.lower()
+            
+            # Vérifier si le rôle est rétrogradable
+            if new_role not in ADMIN_CONFIG['demotable_roles'] and new_role != "member":
+                await ctx.send(f"❌ Rôle '{new_role}' non autorisé pour rétrogradation!")
+                available_roles = ", ".join(ADMIN_CONFIG['demotable_roles'] + ["member"])
+                await ctx.send(f"📋 Rôles autorisés: {available_roles}")
+                return
+
+            # Vérifier le rôle actuel
+            current_role = self.point_system.database.get_user_role(str(member.id))
+            hierarchy = ADMIN_CONFIG['user_roles_hierarchy']
+            
+            current_level = hierarchy.index(current_role) if current_role in hierarchy else 0
+            new_level = hierarchy.index(new_role) if new_role in hierarchy else 0
+            
+            if new_level >= current_level:
+                await ctx.send(f"❌ {member.display_name} est '{current_role}', impossible de rétrograder vers '{new_role}'!")
+                return
+
+            # Exiger une raison pour les rétrogradations
+            if ADMIN_CONFIG['require_reason'] and not reason:
+                await ctx.send("❌ Une raison est obligatoire pour les rétrogradations!")
+                return
+
+            # Effectuer la rétrogradation
+            success = self.point_system.database.admin_set_user_role(
+                str(ctx.author.id), 
+                str(member.id), 
+                new_role, 
+                reason
+            )
+
+            if success:
+                embed = discord.Embed(
+                    title="⬇️ Rétrogradation Effectuée",
+                    description=f"**{member.display_name}** a été rétrogradé(e).",
+                    color=discord.Color.red()
+                )
+                embed.add_field(name="👤 Administrateur", value=ctx.author.display_name, inline=True)
+                embed.add_field(name="🎯 Utilisateur", value=member.display_name, inline=True)
+                embed.add_field(name="📊 Changement", value=f"{current_role} → {new_role}", inline=True)
+                embed.add_field(name="📋 Raison", value=reason, inline=False)
+                
+                await ctx.send(embed=embed)
+                
+                # Notification à l'utilisateur
+                try:
+                    await member.send(f"⚠️ Tu as été rétrogradé(e) au rôle **{new_role}** par l'administration.\nRaison: {reason}")
+                except:
+                    pass  # Si les DM sont fermés
+            else:
+                await ctx.send("❌ Échec de la rétrogradation. Vérifiez les logs.")
+
+        except Exception as e:
+            logger.error(f"Error in admin_demote command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    # === FIN COMMANDES ADMIN AVANCÉES ===
+
     @commands.command(name='linktwitter', aliases=['liertwitter', 'connecttwitter'])
     @commands.cooldown(1, 900, commands.BucketType.user)  # 1 fois par 15 minutes par utilisateur
     async def link_twitter(self, ctx, username: str):

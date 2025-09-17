@@ -62,6 +62,25 @@ JUSTICE_CONFIG = {
     "plea_success_rate": 0.3,     # 30% de chance de succès pour plaider
 }
 
+# Administration System Configuration (nouveau selon TECH Brief)
+ADMIN_CONFIG = {
+    "max_items_per_action": 10,    # Maximum d'items par commande admin
+    "restricted_items": [          # Items nécessitant permissions spéciales
+        "vip_pass", "mod_tools", "admin_badge", "server_boosts"
+    ],
+    "user_roles_hierarchy": [      # Hiérarchie des rôles utilisateurs (ordre croissant)
+        "member", "trusted", "vip", "helper", "moderator", "admin"
+    ],
+    "promotable_roles": [          # Rôles que les admins peuvent promouvoir
+        "trusted", "vip", "helper"
+    ],
+    "demotable_roles": [           # Rôles que les admins peuvent rétrograder
+        "trusted", "vip", "helper", "moderator"
+    ],
+    "admin_action_log": True,      # Logger toutes les actions admin
+    "require_reason": True,        # Exiger une raison pour promote/demote
+}
+
 # Russian Roulette Configuration
 ROULETTE_MIN_BET = 100
 ROULETTE_MAX_BET = 1000

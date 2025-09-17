@@ -872,6 +872,145 @@ class SupabaseDatabase:
             logger.error(f"Error doing prison work: {e}", exc_info=True)
             return False, 0
 
+    # === ADMIN SYSTEM METHODS ===
+    
+    def admin_add_item(self, admin_id: str, target_id: str, item_id: str, quantity: int = 1, reason: str = "") -> bool:
+        """Add item to user's inventory (admin action)"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Add items to inventory
+            for _ in range(quantity):
+                self.add_item_to_inventory(target_id, item_id)
+            
+            # Log admin action
+            log_data = {
+                'admin_id': admin_id,
+                'target_id': target_id,
+                'action': 'add_item',
+                'details': {'item_id': item_id, 'quantity': quantity},
+                'reason': reason,
+                'performed_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('admin_actions').insert(log_data).execute()
+            
+            logger.info(f"Admin {admin_id} added {quantity}x {item_id} to user {target_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in admin add item: {e}", exc_info=True)
+            return False
+    
+    def admin_remove_item(self, admin_id: str, target_id: str, item_id: str, quantity: int = 1, reason: str = "") -> Tuple[bool, int]:
+        """Remove item from user's inventory (admin action)"""
+        try:
+            if not self.is_connected():
+                return False, 0
+            
+            # Get current inventory
+            inventory = self.get_inventory(target_id)
+            items_to_remove = min(quantity, inventory.count(item_id))
+            
+            # Remove items
+            for _ in range(items_to_remove):
+                self.remove_item_from_inventory(target_id, item_id)
+            
+            # Log admin action
+            log_data = {
+                'admin_id': admin_id,
+                'target_id': target_id,
+                'action': 'remove_item',
+                'details': {'item_id': item_id, 'quantity': items_to_remove},
+                'reason': reason,
+                'performed_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('admin_actions').insert(log_data).execute()
+            
+            logger.info(f"Admin {admin_id} removed {items_to_remove}x {item_id} from user {target_id}")
+            return True, items_to_remove
+            
+        except Exception as e:
+            logger.error(f"Error in admin remove item: {e}", exc_info=True)
+            return False, 0
+    
+    def admin_set_user_role(self, admin_id: str, target_id: str, new_role: str, reason: str = "") -> bool:
+        """Set user role (admin action)"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Update user role
+            role_data = {
+                'user_id': target_id,
+                'role': new_role,
+                'assigned_by': admin_id,
+                'assigned_at': datetime.now().isoformat(),
+                'reason': reason
+            }
+            
+            # Upsert user role
+            self.supabase.table('user_roles').upsert(role_data).execute()
+            
+            # Log admin action
+            log_data = {
+                'admin_id': admin_id,
+                'target_id': target_id,
+                'action': 'set_role',
+                'details': {'new_role': new_role},
+                'reason': reason,
+                'performed_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('admin_actions').insert(log_data).execute()
+            
+            logger.info(f"Admin {admin_id} set role {new_role} for user {target_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error setting user role: {e}", exc_info=True)
+            return False
+    
+    def get_user_role(self, user_id: str) -> Optional[str]:
+        """Get user's current role"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('user_roles').select('role').eq('user_id', user_id).execute()
+            
+            if result.data:
+                return result.data[0]['role']
+            
+            return "member"  # Default role
+            
+        except Exception as e:
+            logger.error(f"Error getting user role: {e}", exc_info=True)
+            return "member"
+    
+    def get_admin_actions(self, admin_id: str = None, target_id: str = None, limit: int = 50) -> List[Dict]:
+        """Get admin action history"""
+        try:
+            if not self.is_connected():
+                return []
+            
+            query = self.supabase.table('admin_actions').select('*').order('performed_at', desc=True).limit(limit)
+            
+            if admin_id:
+                query = query.eq('admin_id', admin_id)
+            
+            if target_id:
+                query = query.eq('target_id', target_id)
+            
+            result = query.execute()
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting admin actions: {e}", exc_info=True)
+            return []
+
     def save_data(self):
         """Compatibility method - not needed for Supabase"""
         pass
