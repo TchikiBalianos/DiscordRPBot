@@ -84,6 +84,61 @@ ADMIN_CONFIG = {
     "require_reason": True,        # Exiger une raison pour promote/demote
 }
 
+# Advanced Gang Wars Configuration (Phase 4B selon TECH Brief)
+ADVANCED_GANG_CONFIG = {
+    "alliance_cost": 5000,         # Coût pour proposer une alliance
+    "max_alliances": 3,            # Maximum 3 alliances par gang
+    "alliance_duration": 7 * 24 * 3600,  # Alliance dure 7 jours
+    "territory_claim_cost": 10000, # Coût pour revendiquer un territoire
+    "territory_defense_bonus": 1.2, # Bonus 20% pour défendre son territoire
+    "asset_types": [               # Types d'assets de gang disponibles
+        "weapons_cache", "safe_house", "drug_lab", "money_laundry", 
+        "security_system", "recruitment_center", "training_facility"
+    ],
+    "asset_costs": {               # Coûts des différents assets
+        "weapons_cache": 15000,    # Cache d'armes
+        "safe_house": 25000,       # Planque sécurisée
+        "drug_lab": 30000,         # Laboratoire de drogue
+        "money_laundry": 20000,    # Blanchiment d'argent
+        "security_system": 12000,  # Système de sécurité
+        "recruitment_center": 8000, # Centre de recrutement
+        "training_facility": 18000  # Centre d'entraînement
+    },
+    "asset_benefits": {            # Bénéfices des assets
+        "weapons_cache": {"gang_war_bonus": 1.3, "description": "Bonus 30% en guerre"},
+        "safe_house": {"protection": 0.8, "description": "Protection 80% contre vols"},
+        "drug_lab": {"daily_income": 500, "description": "500 DLZ/jour passif"},
+        "money_laundry": {"tax_reduction": 0.5, "description": "50% moins de taxes"},
+        "security_system": {"intel_bonus": 1.5, "description": "Intel 50% meilleur"},
+        "recruitment_center": {"recruit_bonus": 2.0, "description": "Recrutement 2x plus rapide"},
+        "training_facility": {"member_bonus": 1.1, "description": "Membres 10% plus forts"}
+    },
+    "reputation_system": {         # Système de réputation de gang
+        "min_reputation": -100,    # Réputation minimum
+        "max_reputation": 100,     # Réputation maximum
+        "war_victory_bonus": 10,   # Bonus pour victoire en guerre
+        "war_defeat_penalty": -5,  # Pénalité pour défaite
+        "alliance_bonus": 3,       # Bonus pour nouvelle alliance
+        "territory_bonus": 5,      # Bonus pour nouveau territoire
+        "asset_bonus": 2           # Bonus pour nouvel asset
+    },
+    "territories": [               # Territoires disponibles
+        "downtown", "harbor", "industrial", "suburbs", "airport",
+        "casino_district", "financial_center", "underground", "market_square"
+    ],
+    "territory_benefits": {        # Bénéfices par territoire
+        "downtown": {"daily_income": 800, "prestige": 5},
+        "harbor": {"smuggling_bonus": 1.4, "prestige": 3},
+        "industrial": {"asset_discount": 0.8, "prestige": 2},
+        "suburbs": {"recruitment_bonus": 1.3, "prestige": 1},
+        "airport": {"international_bonus": 1.5, "prestige": 4},
+        "casino_district": {"gambling_bonus": 1.6, "prestige": 6},
+        "financial_center": {"money_bonus": 1.8, "prestige": 8},
+        "underground": {"stealth_bonus": 1.7, "prestige": 3},
+        "market_square": {"trade_bonus": 1.4, "prestige": 4}
+    }
+}
+
 # Russian Roulette Configuration
 ROULETTE_MIN_BET = 100
 ROULETTE_MAX_BET = 1000

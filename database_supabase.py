@@ -1020,3 +1020,233 @@ class SupabaseDatabase:
         """Compatibility property for legacy code"""
         logger.warning("Using legacy data property - consider migrating to specific methods")
         return {}
+
+    # === ADVANCED GANG WARS METHODS (Phase 4B) ===
+    
+    def create_gang_alliance(self, gang1_id: int, gang2_id: int, proposed_by: str) -> bool:
+        """Créer une proposition d'alliance entre gangs"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_alliances').insert({
+                'gang1_id': gang1_id,
+                'gang2_id': gang2_id,
+                'status': 'pending',
+                'proposed_by': proposed_by,
+                'created_at': datetime.now().isoformat()
+            }).execute()
+            
+            logger.info(f"Alliance proposed between gangs {gang1_id} and {gang2_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error creating gang alliance: {e}", exc_info=True)
+            return False
+    
+    def get_gang_alliances(self, gang_id: int) -> List[Dict[str, Any]]:
+        """Récupérer les alliances d'un gang"""
+        if not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('gang_alliances').select('*').or_(
+                f'gang1_id.eq.{gang_id},gang2_id.eq.{gang_id}'
+            ).execute()
+            
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting gang alliances: {e}", exc_info=True)
+            return []
+    
+    def accept_gang_alliance(self, alliance_id: int) -> bool:
+        """Accepter une alliance de gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_alliances').update({
+                'status': 'active',
+                'accepted_at': datetime.now().isoformat()
+            }).eq('id', alliance_id).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error accepting alliance: {e}", exc_info=True)
+            return False
+    
+    def break_gang_alliance(self, alliance_id: int, broken_by: str) -> bool:
+        """Rompre une alliance de gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_alliances').update({
+                'status': 'broken',
+                'broken_by': broken_by,
+                'broken_at': datetime.now().isoformat()
+            }).eq('id', alliance_id).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error breaking alliance: {e}", exc_info=True)
+            return False
+    
+    def claim_territory(self, gang_id: int, territory_name: str, claimed_by: str) -> bool:
+        """Revendiquer un territoire pour un gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            # Vérifier si le territoire est déjà pris
+            existing = self.supabase.table('gang_territories').select('*').eq(
+                'territory_name', territory_name
+            ).eq('status', 'claimed').execute()
+            
+            if existing.data:
+                return False  # Territoire déjà pris
+            
+            # Revendiquer le territoire
+            result = self.supabase.table('gang_territories').insert({
+                'gang_id': gang_id,
+                'territory_name': territory_name,
+                'claimed_by': claimed_by,
+                'claimed_at': datetime.now().isoformat(),
+                'status': 'claimed'
+            }).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error claiming territory: {e}", exc_info=True)
+            return False
+    
+    def get_gang_territories(self, gang_id: int) -> List[Dict[str, Any]]:
+        """Récupérer les territoires d'un gang"""
+        if not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('gang_territories').select('*').eq(
+                'gang_id', gang_id
+            ).eq('status', 'claimed').execute()
+            
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting gang territories: {e}", exc_info=True)
+            return []
+    
+    def add_gang_asset(self, gang_id: int, asset_type: str, asset_data: Dict, added_by: str) -> bool:
+        """Ajouter un asset à un gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_assets').insert({
+                'gang_id': gang_id,
+                'asset_type': asset_type,
+                'asset_data': json.dumps(asset_data),
+                'added_by': added_by,
+                'created_at': datetime.now().isoformat(),
+                'status': 'active'
+            }).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error adding gang asset: {e}", exc_info=True)
+            return False
+    
+    def get_gang_assets(self, gang_id: int) -> List[Dict[str, Any]]:
+        """Récupérer les assets d'un gang"""
+        if not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('gang_assets').select('*').eq(
+                'gang_id', gang_id
+            ).eq('status', 'active').execute()
+            
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting gang assets: {e}", exc_info=True)
+            return []
+    
+    def update_gang_reputation(self, gang_id: int, reputation_change: int, reason: str) -> bool:
+        """Mettre à jour la réputation d'un gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            # Récupérer la réputation actuelle
+            gang = self.supabase.table('gangs').select('reputation').eq('id', gang_id).execute()
+            if not gang.data:
+                return False
+            
+            current_rep = gang.data[0].get('reputation', 0)
+            new_rep = max(-100, min(100, current_rep + reputation_change))  # Clamp entre -100 et 100
+            
+            # Mettre à jour
+            result = self.supabase.table('gangs').update({
+                'reputation': new_rep
+            }).eq('id', gang_id).execute()
+            
+            # Logger l'historique
+            self.supabase.table('gang_reputation_history').insert({
+                'gang_id': gang_id,
+                'reputation_change': reputation_change,
+                'new_reputation': new_rep,
+                'reason': reason,
+                'timestamp': datetime.now().isoformat()
+            }).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error updating gang reputation: {e}", exc_info=True)
+            return False
+    
+    def get_gang_reputation(self, gang_id: int) -> int:
+        """Récupérer la réputation d'un gang"""
+        if not self.supabase:
+            return 0
+        
+        try:
+            result = self.supabase.table('gangs').select('reputation').eq('id', gang_id).execute()
+            
+            if result.data:
+                return result.data[0].get('reputation', 0)
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Error getting gang reputation: {e}", exc_info=True)
+            return 0
+    
+    def get_all_territories_status(self) -> Dict[str, Dict[str, Any]]:
+        """Récupérer le statut de tous les territoires"""
+        if not self.supabase:
+            return {}
+        
+        try:
+            result = self.supabase.table('gang_territories').select(
+                'territory_name, gang_id, claimed_at, gangs(name)'
+            ).eq('status', 'claimed').execute()
+            
+            territories = {}
+            for territory in result.data or []:
+                territories[territory['territory_name']] = {
+                    'gang_id': territory['gang_id'],
+                    'gang_name': territory['gangs']['name'] if territory.get('gangs') else 'Unknown',
+                    'claimed_at': territory['claimed_at']
+                }
+            
+            return territories
+            
+        except Exception as e:
+            logger.error(f"Error getting territories status: {e}", exc_info=True)
+            return {}
