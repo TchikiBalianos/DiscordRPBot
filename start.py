@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
-Script de démarrage simplifié pour Railway
+Script de démarrage simplifié pour Railway avec Health Monitoring
+Phase 4A: Intégration du système de surveillance
 """
 import os
 import sys
 import logging
+import threading
+import time
 from dotenv import load_dotenv
 
 # Configuration logging pour Railway
@@ -15,9 +18,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger('Railway')
 
+def start_health_monitor():
+    """Démarrer le serveur de monitoring en arrière-plan"""
+    try:
+        from health_monitoring import run_health_server
+        port = int(os.getenv('HEALTH_PORT', 8000))
+        logger.info(f"🔍 Starting health monitor on port {port}")
+        run_health_server(port)
+    except Exception as e:
+        logger.error(f"❌ Failed to start health monitor: {e}")
+
 def main():
-    """Main function"""
-    logger.info("🚀 Starting Discord bot on Railway...")
+    """Main function with integrated health monitoring"""
+    logger.info("🚀 Starting Discord bot with Health Monitoring on Railway...")
     
     # Charger les variables d'environnement
     load_dotenv()
@@ -28,6 +41,15 @@ def main():
         sys.exit(1)
     
     logger.info("✅ Environment variables loaded")
+    
+    # Démarrer le serveur de monitoring dans un thread séparé
+    if os.getenv('ENABLE_HEALTH_MONITOR', 'true').lower() == 'true':
+        health_thread = threading.Thread(target=start_health_monitor, daemon=True)
+        health_thread.start()
+        logger.info("✅ Health monitoring thread started")
+        
+        # Attendre que le serveur de monitoring démarre
+        time.sleep(2)
     
     # Importer et démarrer le bot
     try:
