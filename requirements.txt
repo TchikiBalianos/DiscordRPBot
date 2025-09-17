@@ -1,6 +1,6 @@
-# Using py-cord instead of discord.py - modern fork without audioop dependencies
-# py-cord is compatible with Python 3.13 and doesn't require audioop module
-py-cord==2.4.0
+# Using py-cord 2.6.0 - latest version with Python 3.13 compatible aiohttp
+# py-cord 2.6.0 should include aiohttp 3.9.x which supports Python 3.13
+py-cord==2.6.0
 # Phase 4A: Health Monitoring dependencies
 fastapi==0.104.1
 uvicorn==0.24.0
