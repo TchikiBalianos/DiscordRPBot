@@ -96,37 +96,71 @@ class HealthMonitor:
             return {}
     
     async def check_database_health(self) -> Dict[str, Any]:
-        """Vérifier la santé de la base de données"""
+        """Vérifier la santé de la base de données avec métriques de résilience"""
         if not self.database:
             return {
                 "status": "disconnected",
                 "error": "Database not initialized",
-                "response_time_ms": None
+                "response_time_ms": None,
+                "connection_resilience": {
+                    "status": "unknown",
+                    "failures": 0,
+                    "last_attempt": None
+                }
             }
         
         try:
             start_time = time.time()
             
-            # Test simple de connexion
+            # Test de connexion avec retry
+            connection_status = self.database.get_connection_status()
+            
+            # Test de requête simple
             leaderboard = self.database.get_leaderboard(1)
             users_count = len(self.database.get_all_users()) if hasattr(self.database, 'get_all_users') else 0
             
             response_time = round((time.time() - start_time) * 1000, 2)
             
+            # Déterminer le statut global
+            if connection_status['connection_failures'] == 0:
+                overall_status = "healthy"
+            elif connection_status['connection_failures'] < 3:
+                overall_status = "degraded"
+            else:
+                overall_status = "critical"
+            
             return {
-                "status": "connected",
+                "status": overall_status,
                 "response_time_ms": response_time,
                 "users_count": users_count,
                 "tables_accessible": True,
-                "last_check": datetime.now().isoformat()
+                "last_check": datetime.now().isoformat(),
+                "connection_resilience": {
+                    "connected": connection_status['connected'],
+                    "failures": connection_status['connection_failures'],
+                    "last_attempt": connection_status['last_attempt'],
+                    "is_reconnecting": connection_status['is_reconnecting'],
+                    "max_retries": connection_status['max_retries'],
+                    "status": connection_status['status']
+                },
+                "performance": {
+                    "query_response_time_ms": response_time,
+                    "connection_stable": connection_status['connection_failures'] == 0,
+                    "auto_recovery_enabled": True
+                }
             }
             
         except Exception as e:
+            # En cas d'erreur, inclure les informations de résilience
+            connection_status = self.database.get_connection_status() if self.database else {}
+            
             return {
                 "status": "error",
                 "error": str(e),
                 "response_time_ms": None,
-                "last_check": datetime.now().isoformat()
+                "last_check": datetime.now().isoformat(),
+                "connection_resilience": connection_status,
+                "auto_recovery_status": "attempting" if connection_status.get('is_reconnecting') else "failed"
             }
     
     async def get_bot_statistics(self) -> Dict[str, Any]:
@@ -215,6 +249,52 @@ class HealthMonitor:
 
 # Instance globale du moniteur
 health_monitor = HealthMonitor()
+
+@app.get("/health/resilience")
+async def connection_resilience():
+    """Endpoint spécialisé pour la résilience de connexion"""
+    try:
+        if not health_monitor.database:
+            raise HTTPException(status_code=503, detail="Database not initialized")
+        
+        connection_status = health_monitor.database.get_connection_status()
+        
+        # Test de performance de reconnexion
+        start_time = time.time()
+        test_success = health_monitor.database.is_connected()
+        response_time = round((time.time() - start_time) * 1000, 2)
+        
+        resilience_data = {
+            "connection_status": connection_status,
+            "performance_test": {
+                "response_time_ms": response_time,
+                "connection_test_passed": test_success,
+                "test_timestamp": datetime.now().isoformat()
+            },
+            "resilience_features": {
+                "auto_retry_enabled": True,
+                "exponential_backoff": True,
+                "max_retries": connection_status.get('max_retries', 3),
+                "degraded_mode_available": True
+            },
+            "health_assessment": {
+                "status": connection_status.get('status', 'unknown'),
+                "requires_attention": connection_status.get('connection_failures', 0) > 2,
+                "auto_recovery_active": connection_status.get('is_reconnecting', False)
+            }
+        }
+        
+        # Déterminer le code de statut HTTP
+        if connection_status.get('status') == 'critical':
+            return JSONResponse(content=resilience_data, status_code=503)
+        elif connection_status.get('status') == 'degraded':
+            return JSONResponse(content=resilience_data, status_code=200)  # 200 car le service fonctionne
+        else:
+            return JSONResponse(content=resilience_data, status_code=200)
+            
+    except Exception as e:
+        logger.error(f"Resilience check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Resilience check error: {str(e)}")
 
 @app.get("/health")
 async def health_endpoint():

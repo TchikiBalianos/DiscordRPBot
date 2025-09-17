@@ -15,6 +15,24 @@ POINTS_TWITTER_LIKE = 5
 POINTS_TWITTER_RT = 10
 POINTS_TWITTER_COMMENT = 15
 
+# === DATABASE RESILIENCE CONFIGURATION (Phase 4C) ===
+DATABASE_RESILIENCE_CONFIG = {
+    "max_retries": 3,              # Nombre maximum de tentatives de reconnexion
+    "base_delay": 1.0,             # Délai de base en secondes pour l'exponential backoff
+    "max_delay": 30.0,             # Délai maximum entre les tentatives
+    "connection_timeout": 10.0,     # Timeout pour les requêtes individuelles
+    "health_check_interval": 300,   # Intervalle de vérification de santé (5 minutes)
+    "enable_degraded_mode": True,   # Activer le mode dégradé en cas d'échec
+    "log_connection_issues": True,  # Logger les problèmes de connexion
+    "auto_reconnect": True,         # Reconnexion automatique activée
+    "jitter_enabled": True,         # Ajouter du jitter pour éviter thundering herd
+    "circuit_breaker": {
+        "failure_threshold": 5,     # Seuil d'échecs pour ouvrir le circuit
+        "recovery_timeout": 60,     # Timeout avant tentative de récupération
+        "half_open_max_calls": 3    # Appels max en mode semi-ouvert
+    }
+}
+
 # Daily Command Limits Configuration (selon TECH Brief specs)
 DAILY_LIMITS = {
     "rob": 5,        # 5 vols par jour (steal selon brief)

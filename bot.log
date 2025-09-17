@@ -4668,3 +4668,29 @@ KeyError: 'gang_wars'
 2025-09-17 05:13:34,279 - EngagementBot - INFO - Supabase client initialized successfully
 2025-09-17 05:23:55,534 - EngagementBot - INFO - Supabase client initialized successfully
 2025-09-17 05:23:56,428 - EngagementBot - INFO - Supabase client initialized successfully
+2025-09-17 05:30:31,858 - EngagementBot - INFO - Supabase client initialized successfully (attempt 1)
+2025-09-17 05:30:32,300 - EngagementBot - WARNING - Connection test failed: [Errno 11001] getaddrinfo failed
+2025-09-17 05:30:32,300 - EngagementBot - WARNING - Failed to initialize Supabase client (attempt 1/3): Connection test failed - Retrying in 1.27s...
+2025-09-17 05:30:33,914 - EngagementBot - INFO - Supabase client initialized successfully (attempt 2)
+2025-09-17 05:30:34,284 - EngagementBot - WARNING - Connection test failed: [Errno 11001] getaddrinfo failed
+2025-09-17 05:30:34,284 - EngagementBot - WARNING - Failed to initialize Supabase client (attempt 2/3): Connection test failed - Retrying in 2.47s...
+2025-09-17 05:30:37,216 - EngagementBot - INFO - Supabase client initialized successfully (attempt 3)
+2025-09-17 05:30:37,641 - EngagementBot - WARNING - Connection test failed: [Errno 11001] getaddrinfo failed
+2025-09-17 05:30:37,641 - EngagementBot - ERROR - Failed to initialize Supabase client (attempt 3/3): Connection test failed - All attempts failed
+Traceback (most recent call last):
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\database_supabase.py", line 76, in _initialize_client
+    raise Exception("Connection test failed")
+Exception: Connection test failed
+2025-09-17 05:30:37,998 - EngagementBot - INFO - Supabase client initialized successfully (attempt 1)
+2025-09-17 05:30:38,367 - EngagementBot - WARNING - Connection test failed: [Errno 11001] getaddrinfo failed
+2025-09-17 05:30:38,368 - EngagementBot - WARNING - Failed to initialize Supabase client (attempt 1/3): Connection test failed - Retrying in 1.23s...
+2025-09-17 05:30:39,997 - EngagementBot - INFO - Supabase client initialized successfully (attempt 2)
+2025-09-17 05:30:40,345 - EngagementBot - WARNING - Connection test failed: [Errno 11001] getaddrinfo failed
+2025-09-17 05:30:40,345 - EngagementBot - WARNING - Failed to initialize Supabase client (attempt 2/3): Connection test failed - Retrying in 2.53s...
+2025-09-17 05:30:43,211 - EngagementBot - INFO - Supabase client initialized successfully (attempt 3)
+2025-09-17 05:30:43,630 - EngagementBot - WARNING - Connection test failed: [Errno 11001] getaddrinfo failed
+2025-09-17 05:30:43,630 - EngagementBot - ERROR - Failed to initialize Supabase client (attempt 3/3): Connection test failed - All attempts failed
+Traceback (most recent call last):
+  File "C:\Users\Okaze\Desktop\Julian\Thugz Labs\BOT Discord\DiscordTwitterBOT-main\database_supabase.py", line 76, in _initialize_client
+    raise Exception("Connection test failed")
+Exception: Connection test failed
