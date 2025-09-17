@@ -22,7 +22,8 @@ def start_health_monitor():
     """Démarrer le serveur de monitoring en arrière-plan"""
     try:
         from health_monitoring import run_health_server
-        port = int(os.getenv('HEALTH_PORT', 8000))
+        # Render utilise PORT, fallback sur HEALTH_PORT puis 8000
+        port = int(os.getenv('PORT', os.getenv('HEALTH_PORT', 8000)))
         logger.info(f"🔍 Starting health monitor on port {port}")
         run_health_server(port)
     except Exception as e:
