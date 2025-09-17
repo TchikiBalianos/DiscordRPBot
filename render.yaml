@@ -6,7 +6,7 @@ services:
   plan: free
   region: oregon
   # Force Python 3.12.6 pour éviter l'erreur audioop de Python 3.13
-  runtime: python-3.12.6
+  pythonVersion: '3.12.6'
   buildCommand: |
     echo "Using Python version:"
     python --version
