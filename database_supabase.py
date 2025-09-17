@@ -4,7 +4,7 @@ import json
 import time
 from typing import Optional, Dict, List, Any, Tuple
 from supabase import create_client, Client
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 logger = logging.getLogger('EngagementBot')
 
@@ -659,7 +659,219 @@ class SupabaseDatabase:
             
         except Exception as e:
             logger.error(f"Error during cleanup: {e}", exc_info=True)
+
+    # === JUSTICE SYSTEM METHODS ===
     
+    def arrest_user(self, arrester_id: str, target_id: str, reason: str, prison_time: int) -> bool:
+        """Arrest a user and put them in prison"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Create arrest record
+            arrest_data = {
+                'arrester_id': arrester_id,
+                'target_id': target_id,
+                'reason': reason,
+                'prison_time': prison_time,
+                'arrested_at': datetime.now().isoformat(),
+                'status': 'active'
+            }
+            
+            self.supabase.table('arrests').insert(arrest_data).execute()
+            
+            # Update user prison status
+            prison_data = {
+                'user_id': target_id,
+                'imprisoned_at': datetime.now().isoformat(),
+                'release_at': (datetime.now() + timedelta(seconds=prison_time)).isoformat(),
+                'reason': reason,
+                'arrester_id': arrester_id,
+                'status': 'imprisoned'
+            }
+            
+            # Upsert prison record
+            self.supabase.table('prison_records').upsert(prison_data).execute()
+            
+            logger.info(f"User {target_id} arrested by {arrester_id} for {prison_time}s")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error arresting user: {e}", exc_info=True)
+            return False
+    
+    def get_prison_status(self, user_id: str) -> Optional[Dict]:
+        """Get user's current prison status"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('prison_records').select('*').eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            if result.data:
+                prison_data = result.data[0]
+                release_time = datetime.fromisoformat(prison_data['release_at'])
+                now = datetime.now()
+                
+                if now >= release_time:
+                    # User should be released
+                    self.release_from_prison(user_id)
+                    return None
+                
+                time_left = (release_time - now).total_seconds()
+                return {
+                    'time_left': int(time_left),
+                    'reason': prison_data['reason'],
+                    'arrester_id': prison_data['arrester_id']
+                }
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting prison status: {e}", exc_info=True)
+            return None
+    
+    def release_from_prison(self, user_id: str) -> bool:
+        """Release user from prison"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            self.supabase.table('prison_records').update({'status': 'released'}).eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            logger.info(f"Released user {user_id} from prison")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error releasing from prison: {e}", exc_info=True)
+            return False
+    
+    def pay_bail(self, user_id: str, bail_amount: int) -> bool:
+        """Pay bail to get out of prison"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Check if user has enough points
+            user_data = self.get_user_data(user_id)
+            if user_data['points'] < bail_amount:
+                return False
+            
+            # Remove points
+            self.remove_points(user_id, bail_amount)
+            
+            # Release from prison
+            self.release_from_prison(user_id)
+            
+            # Record bail payment
+            bail_data = {
+                'user_id': user_id,
+                'amount': bail_amount,
+                'paid_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('bail_payments').insert(bail_data).execute()
+            
+            logger.info(f"User {user_id} paid bail of {bail_amount}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error paying bail: {e}", exc_info=True)
+            return False
+    
+    def add_prison_visit(self, visitor_id: str, prisoner_id: str, message: str) -> bool:
+        """Record a prison visit"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            visit_data = {
+                'visitor_id': visitor_id,
+                'prisoner_id': prisoner_id,
+                'message': message,
+                'visited_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('prison_visits').insert(visit_data).execute()
+            
+            logger.info(f"Prison visit recorded: {visitor_id} visited {prisoner_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error recording prison visit: {e}", exc_info=True)
+            return False
+    
+    def submit_plea(self, user_id: str, plea_text: str) -> bool:
+        """Submit a plea for trial"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            plea_data = {
+                'user_id': user_id,
+                'plea_text': plea_text,
+                'submitted_at': datetime.now().isoformat(),
+                'status': 'pending'
+            }
+            
+            self.supabase.table('pleas').insert(plea_data).execute()
+            
+            logger.info(f"Plea submitted by user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error submitting plea: {e}", exc_info=True)
+            return False
+    
+    def do_prison_work(self, user_id: str) -> Tuple[bool, int]:
+        """Do work in prison to earn points and reduce sentence"""
+        try:
+            if not self.is_connected():
+                return False, 0
+            
+            # Check if user is in prison
+            prison_status = self.get_prison_status(user_id)
+            if not prison_status:
+                return False, 0
+            
+            # Award points for prison work
+            from config import JUSTICE_CONFIG
+            reward_points = JUSTICE_CONFIG['prison_work_reward']
+            self.add_points(user_id, reward_points)
+            
+            # Reduce sentence by 30 minutes
+            time_reduction = 30 * 60  # 30 minutes
+            
+            # Update release time
+            result = self.supabase.table('prison_records').select('release_at').eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            if result.data:
+                current_release = datetime.fromisoformat(result.data[0]['release_at'])
+                new_release = current_release - timedelta(seconds=time_reduction)
+                
+                # Don't reduce below current time
+                if new_release < datetime.now():
+                    new_release = datetime.now()
+                
+                self.supabase.table('prison_records').update({'release_at': new_release.isoformat()}).eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            # Record work session
+            work_data = {
+                'user_id': user_id,
+                'points_earned': reward_points,
+                'time_reduced': time_reduction,
+                'worked_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('prison_work').insert(work_data).execute()
+            
+            logger.info(f"Prison work completed by {user_id}: +{reward_points} points, -{time_reduction}s")
+            return True, reward_points
+            
+        except Exception as e:
+            logger.error(f"Error doing prison work: {e}", exc_info=True)
+            return False, 0
+
     def save_data(self):
         """Compatibility method - not needed for Supabase"""
         pass

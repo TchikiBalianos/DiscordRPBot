@@ -44,6 +44,22 @@ COMMAND_COOLDOWNS = {
     "duel": 12 * 3600,     # 12 heures entre chaque !duel
     "gift": 1 * 3600,      # 1 heure entre chaque !gift
     "combat": 3 * 3600,    # 3 heures entre chaque !combat (général)
+    "arrest": 1 * 3600,    # 1 heure entre chaque arrestation
+    "bail": 30 * 60,       # 30 minutes entre tentatives de caution
+    "visit": 2 * 3600,     # 2 heures entre visites en prison
+}
+
+# Justice System Configuration (nouveau selon TECH Brief)
+JUSTICE_CONFIG = {
+    "arrest_cost": 500,           # Coût pour arrêter quelqu'un
+    "min_arrest_points": 1000,    # Points minimum pour pouvoir arrêter
+    "base_bail_amount": 2000,     # Montant de base pour la caution
+    "bail_multiplier": 1.5,       # Multiplicateur selon la gravité
+    "max_prison_time": 24 * 3600, # Temps de prison maximum (24h)
+    "min_prison_time": 1 * 3600,  # Temps de prison minimum (1h)
+    "prison_work_reward": 50,     # Points gagnés par heure de travail en prison
+    "visit_cost": 100,            # Coût pour visiter en prison
+    "plea_success_rate": 0.3,     # 30% de chance de succès pour plaider
 }
 
 # Russian Roulette Configuration

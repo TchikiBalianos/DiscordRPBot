@@ -45,7 +45,10 @@ def audit_commands():
                                      'troquer', 'echange', 'ajouterpoints', 'donnerpoints',
                                      'retirerpoints', 'enleverpoints', 'liertwitter', 
                                      'connecttwitter', 'statustwitter', 'statut_x', 'queuetwitter',
-                                     'file_x', 'deconnectertwitter', 'delier_x']
+                                     'file_x', 'deconnectertwitter', 'delier_x', 'arreter',
+                                     'arreter_suspect', 'caution', 'payer_caution', 'visiter',
+                                     'visite_prison', 'plaider', 'supplier', 'travail_prison',
+                                     'bosser_prison']
                              for alias in aliases)
         })
     

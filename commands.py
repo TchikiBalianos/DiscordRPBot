@@ -600,6 +600,285 @@ class Commands(commands.Cog):
             logger.error(f"Error in tribunal command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
+    # === NOUVELLES COMMANDES JUSTICE SYSTEM (TECH Brief) ===
+
+    @commands.command(name='arrest', aliases=['arreter', 'arreter_suspect'])
+    @commands.cooldown(1, COMMAND_COOLDOWNS.get("arrest", 3600), commands.BucketType.user)
+    async def arrest_command(self, ctx, target: discord.Member, *, reason: str):
+        """Arrest a user and send them to prison / Arrêter un utilisateur et l'envoyer en prison"""
+        try:
+            # Vérifications de base
+            if target == ctx.author:
+                await ctx.send("❌ Tu ne peux pas t'arrêter toi-même!")
+                return
+            
+            if target.bot:
+                await ctx.send("❌ Tu ne peux pas arrêter un bot!")
+                return
+            
+            # Vérifier si l'utilisateur a assez de points pour arrêter
+            arrester_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            if arrester_data['points'] < JUSTICE_CONFIG['min_arrest_points']:
+                await ctx.send(f"❌ Tu as besoin d'au moins {JUSTICE_CONFIG['min_arrest_points']} points pour pouvoir arrêter quelqu'un!")
+                return
+            
+            # Vérifier si la cible est déjà en prison
+            prison_status = self.point_system.database.get_prison_status(str(target.id))
+            if prison_status:
+                await ctx.send(f"❌ {target.display_name} est déjà en prison!")
+                return
+            
+            # Calculer le temps de prison (basé sur une logique simple)
+            target_data = self.point_system.database.get_user_data(str(target.id))
+            base_time = JUSTICE_CONFIG['min_prison_time']
+            
+            # Plus la personne a de points, plus la peine peut être longue
+            time_multiplier = min(target_data['points'] / 5000, 3.0)  # Max 3x
+            prison_time = int(base_time * time_multiplier)
+            prison_time = min(prison_time, JUSTICE_CONFIG['max_prison_time'])
+            
+            # Effectuer l'arrestation
+            success = self.point_system.database.arrest_user(
+                str(ctx.author.id), 
+                str(target.id), 
+                reason, 
+                prison_time
+            )
+            
+            if success:
+                # Déduire le coût d'arrestation
+                self.point_system.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['arrest_cost'])
+                
+                embed = discord.Embed(
+                    title="🚔 Arrestation Effectuée",
+                    description=f"**{target.display_name}** a été arrêté(e)!",
+                    color=discord.Color.red()
+                )
+                embed.add_field(name="👮 Arrêté par", value=ctx.author.display_name, inline=True)
+                embed.add_field(name="📝 Motif", value=reason, inline=True)
+                embed.add_field(name="⏰ Durée", value=f"{prison_time//3600}h {(prison_time%3600)//60}min", inline=True)
+                embed.add_field(name="💰 Caution estimée", value=f"{int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])} points", inline=True)
+                
+                await ctx.send(embed=embed)
+                
+                # Notification à la cible
+                try:
+                    await target.send(f"🚔 Tu as été arrêté(e) par **{ctx.author.display_name}** pour: {reason}\nTemps de prison: {prison_time//3600}h {(prison_time%3600)//60}min\nUtilise `!bail` pour payer ta caution!")
+                except:
+                    pass  # Si les DM sont fermés
+            else:
+                await ctx.send("❌ Échec de l'arrestation. Réessaie plus tard.")
+
+        except Exception as e:
+            logger.error(f"Error in arrest command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite lors de l'arrestation.")
+
+    @commands.command(name='bail', aliases=['caution', 'payer_caution'])
+    @commands.cooldown(1, COMMAND_COOLDOWNS.get("bail", 1800), commands.BucketType.user)
+    async def bail_command(self, ctx, amount: int = None):
+        """Pay bail to get out of prison / Payer sa caution pour sortir de prison"""
+        try:
+            # Vérifier si l'utilisateur est en prison
+            prison_status = self.point_system.database.get_prison_status(str(ctx.author.id))
+            if not prison_status:
+                await ctx.send("❌ Tu n'es pas en prison!")
+                return
+            
+            # Calculer le montant de caution requis
+            required_bail = int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])
+            
+            if amount is None:
+                embed = discord.Embed(
+                    title="💰 Informations Caution",
+                    description="Tu peux payer ta caution pour sortir de prison",
+                    color=discord.Color.gold()
+                )
+                embed.add_field(name="🚔 Temps restant", value=f"{prison_status['time_left']//60} minutes", inline=True)
+                embed.add_field(name="💵 Caution requise", value=f"{required_bail} points", inline=True)
+                embed.add_field(name="📝 Motif d'arrestation", value=prison_status['reason'], inline=False)
+                embed.add_field(name="💡 Utilisation", value=f"`!bail {required_bail}` pour payer", inline=False)
+                
+                await ctx.send(embed=embed)
+                return
+            
+            # Vérifier le montant
+            if amount < required_bail:
+                await ctx.send(f"❌ Montant insuffisant! Caution requise: {required_bail} points")
+                return
+            
+            # Vérifier si l'utilisateur a assez de points
+            user_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            if user_data['points'] < amount:
+                await ctx.send(f"❌ Tu n'as pas assez de points! Tu as {user_data['points']} points, il faut {amount}")
+                return
+            
+            # Payer la caution
+            success = self.point_system.database.pay_bail(str(ctx.author.id), amount)
+            
+            if success:
+                embed = discord.Embed(
+                    title="🔓 Liberté Retrouvée!",
+                    description=f"Tu as payé {amount} points de caution et tu es maintenant libre!",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="💸 Points restants", value=f"{user_data['points'] - amount} points", inline=True)
+                
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Échec du paiement de caution. Réessaie plus tard.")
+
+        except Exception as e:
+            logger.error(f"Error in bail command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite lors du paiement de caution.")
+
+    @commands.command(name='visit', aliases=['visiter', 'visite_prison'])
+    @commands.cooldown(1, COMMAND_COOLDOWNS.get("visit", 7200), commands.BucketType.user)
+    async def visit_command(self, ctx, target: discord.Member, *, message: str):
+        """Visit someone in prison / Visiter quelqu'un en prison"""
+        try:
+            # Vérifications de base
+            if target == ctx.author:
+                await ctx.send("❌ Tu ne peux pas te rendre visite à toi-même!")
+                return
+            
+            # Vérifier si la cible est en prison
+            prison_status = self.point_system.database.get_prison_status(str(target.id))
+            if not prison_status:
+                await ctx.send(f"❌ {target.display_name} n'est pas en prison!")
+                return
+            
+            # Vérifier si le visiteur a assez de points
+            visitor_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            if visitor_data['points'] < JUSTICE_CONFIG['visit_cost']:
+                await ctx.send(f"❌ Tu as besoin de {JUSTICE_CONFIG['visit_cost']} points pour effectuer une visite!")
+                return
+            
+            # Effectuer la visite
+            success = self.point_system.database.add_prison_visit(
+                str(ctx.author.id), 
+                str(target.id), 
+                message
+            )
+            
+            if success:
+                # Déduire le coût de visite
+                self.point_system.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['visit_cost'])
+                
+                embed = discord.Embed(
+                    title="🏢 Visite en Prison",
+                    description=f"Tu as rendu visite à **{target.display_name}**",
+                    color=discord.Color.blue()
+                )
+                embed.add_field(name="💬 Ton message", value=message, inline=False)
+                embed.add_field(name="💰 Coût", value=f"{JUSTICE_CONFIG['visit_cost']} points", inline=True)
+                embed.add_field(name="⏰ Temps restant (prisonnier)", value=f"{prison_status['time_left']//60} minutes", inline=True)
+                
+                await ctx.send(embed=embed)
+                
+                # Notification au prisonnier
+                try:
+                    visit_embed = discord.Embed(
+                        title="👥 Tu as reçu une visite!",
+                        description=f"**{ctx.author.display_name}** est venu(e) te voir en prison",
+                        color=discord.Color.blue()
+                    )
+                    visit_embed.add_field(name="💬 Message", value=message, inline=False)
+                    
+                    await target.send(embed=visit_embed)
+                except:
+                    pass  # Si les DM sont fermés
+            else:
+                await ctx.send("❌ Échec de la visite. Réessaie plus tard.")
+
+        except Exception as e:
+            logger.error(f"Error in visit command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite lors de la visite.")
+
+    @commands.command(name='plead', aliases=['plaider', 'supplier'])
+    async def plead_command(self, ctx, *, plea_text: str):
+        """Submit a plea to reduce prison sentence / Plaider pour réduire sa peine de prison"""
+        try:
+            # Vérifier si l'utilisateur est en prison
+            prison_status = self.point_system.database.get_prison_status(str(ctx.author.id))
+            if not prison_status:
+                await ctx.send("❌ Tu n'es pas en prison! Tu ne peux plaider que si tu es emprisonné.")
+                return
+            
+            # Soumettre le plaidoyer
+            success = self.point_system.database.submit_plea(str(ctx.author.id), plea_text)
+            
+            if success:
+                # Chance de succès du plaidoyer
+                import random
+                success_roll = random.random()
+                
+                embed = discord.Embed(
+                    title="⚖️ Plaidoyer Soumis",
+                    description="Ton plaidoyer a été entendu par le tribunal...",
+                    color=discord.Color.gold()
+                )
+                embed.add_field(name="📝 Ton plaidoyer", value=plea_text, inline=False)
+                
+                if success_roll < JUSTICE_CONFIG['plea_success_rate']:
+                    # Succès du plaidoyer - réduire la peine
+                    time_reduction = prison_status['time_left'] // 3  # Réduction de 1/3
+                    
+                    # Mettre à jour la sentence (simulation - à adapter selon votre système)
+                    embed.add_field(name="✅ Verdict", value="Plaidoyer accepté!", inline=True)
+                    embed.add_field(name="⏰ Réduction", value=f"{time_reduction//60} minutes", inline=True)
+                    embed.color = discord.Color.green()
+                    
+                    # TODO: Implémenter la réduction réelle du temps de prison
+                    
+                else:
+                    # Échec du plaidoyer
+                    embed.add_field(name="❌ Verdict", value="Plaidoyer rejeté", inline=True)
+                    embed.add_field(name="📢 Tribunal", value="Ta peine reste inchangée", inline=True)
+                    embed.color = discord.Color.red()
+                
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Échec de la soumission du plaidoyer. Réessaie plus tard.")
+
+        except Exception as e:
+            logger.error(f"Error in plead command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite lors du plaidoyer.")
+
+    @commands.command(name='prisonwork', aliases=['travail_prison', 'bosser_prison'])
+    @commands.cooldown(1, 3600, commands.BucketType.user)  # 1 fois par heure
+    async def prisonwork_command(self, ctx):
+        """Work in prison to earn points and reduce sentence / Travailler en prison pour gagner des points et réduire sa peine"""
+        try:
+            # Vérifier si l'utilisateur est en prison
+            prison_status = self.point_system.database.get_prison_status(str(ctx.author.id))
+            if not prison_status:
+                await ctx.send("❌ Tu n'es pas en prison! Tu ne peux travailler qu'en étant emprisonné.")
+                return
+            
+            # Effectuer le travail en prison
+            success, points_earned = self.point_system.database.do_prison_work(str(ctx.author.id))
+            
+            if success:
+                embed = discord.Embed(
+                    title="🔨 Travail en Prison",
+                    description="Tu as travaillé dur pendant ton emprisonnement!",
+                    color=discord.Color.orange()
+                )
+                embed.add_field(name="💰 Points gagnés", value=f"+{points_earned} points", inline=True)
+                embed.add_field(name="⏰ Temps réduit", value="30 minutes", inline=True)
+                embed.add_field(name="📈 Comportement", value="Exemplaire", inline=True)
+                embed.add_field(name="💡 Info", value="Tu peux travailler une fois par heure", inline=False)
+                
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Impossible de travailler maintenant. Réessaie plus tard.")
+
+        except Exception as e:
+            logger.error(f"Error in prisonwork command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite pendant le travail en prison.")
+
+    # === FIN COMMANDES JUSTICE SYSTEM ===
+
     @commands.command(name='shop', aliases=['boutique'])
     async def shop_command(self, ctx):
         """Show the shop items"""
