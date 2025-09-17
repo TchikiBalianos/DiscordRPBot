@@ -1,0 +1,38 @@
+
+🌐 RENDER.COM DEPLOYMENT SUMMARY
+Generated: 2025-09-17 06:10:51
+
+DEPLOYMENT STEPS:
+1. Go to https://render.com
+2. Create account / Login
+3. New Web Service
+4. Connect repository: YEVANAFARO/DiscordTweeterBT
+5. Configure:
+   - Name: discord-bot-thugz
+   - Environment: Python 3
+   - Build Command: pip install -r requirements.txt
+   - Start Command: python start.py
+   - Region: Oregon (free)
+
+ENVIRONMENT VARIABLES TO SET:
+DISCORD_TOKEN=your_discord_bot_token
+DISCORD_GUILD_ID=your_server_id
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_key
+ENABLE_HEALTH_MONITOR=true
+
+OPTIONAL VARIABLES:
+PORT=10000 (auto-set by Render)
+PYTHON_VERSION=3.12.0
+
+POST-DEPLOYMENT:
+- Bot URL: https://discord-bot-thugz.onrender.com
+- Health Check: https://discord-bot-thugz.onrender.com/health
+- Configure UptimeRobot with this URL
+
+FREE TIER LIMITS:
+- 750 hours/month (perfect for 24/7 bot)
+- Sleeps after 15min inactivity (health monitoring prevents this)
+- Cold starts ~30 seconds (acceptable)
+
+✅ READY FOR RENDER DEPLOYMENT!
