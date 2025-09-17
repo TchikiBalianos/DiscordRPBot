@@ -55,8 +55,11 @@ JUSTICE_CONFIG = {
     "min_arrest_points": 1000,    # Points minimum pour pouvoir arrêter
     "base_bail_amount": 2000,     # Montant de base pour la caution
     "bail_multiplier": 1.5,       # Multiplicateur selon la gravité
+    "bail_cost_multiplier": 1.5,  # Alias pour compatibilité tests
     "max_prison_time": 24 * 3600, # Temps de prison maximum (24h)
     "min_prison_time": 1 * 3600,  # Temps de prison minimum (1h)
+    "min_sentence_hours": 1,      # Alias pour compatibilité tests (heures)
+    "max_sentence_hours": 24,     # Alias pour compatibilité tests (heures)
     "prison_work_reward": 50,     # Points gagnés par heure de travail en prison
     "visit_cost": 100,            # Coût pour visiter en prison
     "plea_success_rate": 0.3,     # 30% de chance de succès pour plaider
