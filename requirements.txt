@@ -1,11 +1,6 @@
-discord.py==2.0.1
-supabase==2.3.0
-python-dotenv==1.0.1
-tweepy==4.14.0
-requests==2.31.0
-psycopg2-binary==2.9.9
-# discord.py 2.0.1 does not require audioop module
-# Compatible with Python 3.13 without audioop dependency
+# Using py-cord instead of discord.py - modern fork without audioop dependencies
+# py-cord is compatible with Python 3.13 and doesn't require audioop module
+py-cord==2.4.0
 # Phase 4A: Health Monitoring dependencies
 fastapi==0.104.1
 uvicorn==0.24.0
