@@ -1,3 +1,6 @@
+# PATCH AUDIOOP AVANT IMPORT NEXTCORD (Python 3.13 compatibility)
+import audioop_patch  # Doit être le PREMIER import
+
 import nextcord as discord
 from nextcord.ext import commands
 import logging

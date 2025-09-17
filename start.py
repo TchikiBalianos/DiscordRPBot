@@ -3,6 +3,10 @@
 Script de démarrage simplifié pour Railway avec Health Monitoring
 Phase 4A: Intégration du système de surveillance
 """
+
+# PATCH AUDIOOP CRITIQUE - DOIT ÊTRE LE PREMIER IMPORT
+import audioop_patch  # Python 3.13 compatibility patch
+
 import os
 import sys
 import logging
