@@ -5,7 +5,7 @@ tweepy==4.14.0
 requests==2.31.0
 psycopg2-binary==2.9.9
 # Fix for Python 3.13 audioop module removal
-audioop-compat
+audioop
 # Phase 4A: Health Monitoring dependencies
 fastapi==0.104.1
 uvicorn==0.24.0
