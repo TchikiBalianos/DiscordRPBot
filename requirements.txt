@@ -1,6 +1,6 @@
-# Using py-cord 2.6.0 - latest version with Python 3.13 compatible aiohttp
-# py-cord 2.6.0 should include aiohttp 3.9.x which supports Python 3.13
-py-cord==2.6.0
+# SOLUTION DÉFINITIVE: nextcord - fork moderne sans audioop pour Python 3.13
+# nextcord est spécialement conçu pour éviter les problèmes audioop/aiohttp
+nextcord==2.6.0
 supabase==2.3.0
 python-dotenv==1.0.1
 tweepy==4.14.0

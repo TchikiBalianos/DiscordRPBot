@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 from gang_system import GangSystem
 from gang_wars import GangWarSystem
 from territory_system import TerritorySystem
-import discord
+import nextcord as discord
 
 logger = logging.getLogger('EngagementBot')
 
