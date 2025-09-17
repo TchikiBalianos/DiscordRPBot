@@ -1,0 +1,43 @@
+
+🔔 CONFIGURATION UPTIMEROBOT - Bot Discord Thugz Life RP
+Généré automatiquement le 2025-09-17 05:45:12
+
+1. CRÉER LE MONITOR PRINCIPAL
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Type: HTTP(s)
+   URL: https://your-app-name.railway.app/health
+   Nom: Discord Bot Thugz - Health Check
+   Intervalle: 5 minutes (selon TECH Brief)
+   Keyword: alive
+   
+2. ALERTES RECOMMANDÉES
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Email: votre-email@domain.com
+   Threshold: 2 minutes (attendre avant alerte)
+   Send when DOWN: ✅
+   Send when UP: ✅
+   
+3. MONITORS ADDITIONNELS (OPTIONNEL)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Monitor Détaillé:
+   - URL: https://your-app-name.railway.app/health/detailed
+   - Intervalle: 10 minutes
+   
+   Monitor Résilience:
+   - URL: https://your-app-name.railway.app/health/resilience
+   - Intervalle: 15 minutes
+   
+4. APRÈS DÉPLOIEMENT RAILWAY
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   - railway deploy
+   - Noter l'URL générée
+   - Remplacer "your-app-name" dans les URLs ci-dessus
+   - Tester manuellement les endpoints
+   - Configurer UptimeRobot avec la vraie URL
+   
+5. VALIDATION
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   - Monitor UptimeRobot actif
+   - Réception d'alertes test
+   - Health checks répondent 200 OK
+   - Bot Discord fonctionnel
