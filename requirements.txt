@@ -1,6 +1,11 @@
 # Using py-cord 2.6.0 - latest version with Python 3.13 compatible aiohttp
 # py-cord 2.6.0 should include aiohttp 3.9.x which supports Python 3.13
 py-cord==2.6.0
+supabase==2.3.0
+python-dotenv==1.0.1
+tweepy==4.14.0
+requests==2.31.0
+psycopg2-binary==2.9.9
 # Phase 4A: Health Monitoring dependencies
 fastapi==0.104.1
 uvicorn==0.24.0
