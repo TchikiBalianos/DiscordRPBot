@@ -1,7 +1,7 @@
 # SOLUTION DÉFINITIVE: nextcord - fork moderne sans audioop pour Python 3.13
 # nextcord est spécialement conçu pour éviter les problèmes audioop/aiohttp
 nextcord==2.6.0
-supabase==2.3.0
+supabase==2.7.4
 python-dotenv==1.0.1
 tweepy==4.14.0
 requests==2.31.0

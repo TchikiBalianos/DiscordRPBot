@@ -378,7 +378,15 @@ async def status_endpoint():
 
 def run_health_server(port: int = 8000):
     """Démarrer le serveur de monitoring"""
-    logger.info(f"🌐 Starting health monitoring server on port {port}")
+    # Sur Render, utiliser la variable PORT fournie par la plateforme
+    render_port = os.getenv('PORT')
+    if render_port:
+        port = int(render_port)
+        logger.info(f"🌐 Using Render PORT environment variable: {port}")
+    else:
+        logger.info(f"🌐 Using fallback port: {port}")
+    
+    logger.info(f"🌐 Starting health monitoring server on 0.0.0.0:{port}")
     
     try:
         uvicorn.run(
@@ -393,5 +401,5 @@ def run_health_server(port: int = 8000):
 
 if __name__ == "__main__":
     # Démarrer le serveur de monitoring
-    port = int(os.getenv("HEALTH_PORT", 8000))
+    port = int(os.getenv("PORT", os.getenv("HEALTH_PORT", 8000)))
     run_health_server(port)
