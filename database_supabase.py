@@ -51,40 +51,62 @@ class SupabaseDatabase:
         return delay + jitter
     
     def _initialize_client(self):
-        """Initialize Supabase client with retry logic"""
+        """Initialize Supabase client with retry logic - optimized for Render environment"""
         for attempt in range(self.max_retries):
             try:
                 url = os.getenv('SUPABASE_URL')
                 key = os.getenv('SUPABASE_ANON_KEY')
                 
                 if not url or not key:
-                    logger.error("Supabase credentials not found in environment variables")
+                    logger.error("⚠️ Supabase credentials not found in environment variables")
+                    logger.error("   Make sure SUPABASE_URL and SUPABASE_ANON_KEY are set")
                     self.supabase = None
                     return
                 
                 self.supabase = create_client(url, key)
-                logger.info(f"Supabase client initialized successfully (attempt {attempt + 1})")
+                logger.info(f"✅ Supabase client initialized successfully (attempt {attempt + 1})")
                 
                 # Test de connexion robuste avec timeout
+                # En environnement Render, les première tentatives peuvent échouer
+                # mais la base de données finit par répondre
                 success = self._test_connection()
                 if success:
                     self.connection_failures = 0
                     self.last_connection_attempt = datetime.now()
-                    logger.info("✅ Supabase connection test successful")
+                    logger.info("✅ Supabase connection test successful - Database is reachable")
                     return
                 else:
-                    raise Exception("Connection test failed")
+                    # Si test échoue, on continue anyway - la connexion peut être lente au démarrage
+                    if attempt == self.max_retries - 1:
+                        logger.warning("⚠️ Initial connection test failed, but client is created. Will retry during operations.")
+                        self.last_connection_attempt = datetime.now()
+                        # Ne pas lever une exception - le bot fonctionnera en mode dégradé
+                        return
+                    else:
+                        raise Exception("Connection test failed - will retry")
             
             except Exception as e:
                 self.connection_failures += 1
-                error_msg = f"Failed to initialize Supabase client (attempt {attempt + 1}/{self.max_retries}): {e}"
+                error_msg = f"Failed to initialize Supabase client (attempt {attempt + 1}/{self.max_retries})"
+                error_details = str(e)
+                
+                # Identifier le type d'erreur
+                if "Name or service not known" in error_details or "[Errno -2]" in error_details:
+                    logger.warning(f"🌐 {error_msg}: DNS/Network issue - {error_details}")
+                elif "timeout" in error_details.lower():
+                    logger.warning(f"⏱️ {error_msg}: Connection timeout - {error_details}")
+                elif "refused" in error_details.lower():
+                    logger.warning(f"🔒 {error_msg}: Connection refused - {error_details}")
+                else:
+                    logger.warning(f"❌ {error_msg}: {error_details}")
                 
                 if attempt < self.max_retries - 1:
                     delay = self._calculate_backoff_delay(attempt)
-                    logger.warning(f"{error_msg} - Retrying in {delay:.2f}s...")
+                    logger.info(f"   ⏳ Retrying in {delay:.2f}s... (this is normal in Render during startup)")
                     time.sleep(delay)
                 else:
-                    logger.error(f"{error_msg} - All attempts failed", exc_info=True)
+                    logger.error(f"   🚨 All {self.max_retries} attempts failed. Bot will run with LIMITED FUNCTIONALITY.")
+                    logger.error(f"   Check: 1) Network connectivity 2) Render environment variables 3) Supabase status")
                     self.supabase = None
     
     def _test_connection(self) -> bool:

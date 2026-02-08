@@ -12,7 +12,11 @@ import sys
 import logging
 import threading
 import time
+import warnings
 from dotenv import load_dotenv
+
+# Suppress tweepy SyntaxWarnings about invalid escape sequences (non-critical)
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="tweepy")
 
 # Configuration logging pour Railway
 logging.basicConfig(

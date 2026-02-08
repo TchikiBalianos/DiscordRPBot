@@ -8,6 +8,10 @@ import os
 from datetime import datetime
 import asyncio
 import time
+import warnings
+
+# Suppress tweepy SyntaxWarnings about invalid escape sequences in docstrings (non-critical)
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="tweepy")
 
 # Import our systems
 from database_supabase import SupabaseDatabase

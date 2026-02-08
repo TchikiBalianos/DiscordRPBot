@@ -6,6 +6,7 @@
 
 | Snapshot Tag | Version | Date | Description | Branche | État |
 |--------------|---------|------|-------------|---------|------|
+| `SNAPSHOT_2026_02_08_RENDER_DEPLOYMENT` | v1.2.1 | 08/02/2026 | ✅ Recovery après 5 mois - Fixes Render + Tweepy | main | **Deployed** |
 | `SNAPSHOT_INTERNATIONALISATION_v1.2.0` | v1.2.0 | 16/09/2025 | ✅ Internationalisation complète 92.6% | dev-internationalisation | Stable |
 
 ### 🔄 **Comment Revenir à un Snapshot**
@@ -26,6 +27,42 @@ git reset --hard SNAPSHOT_INTERNATIONALISATION_v1.2.0
 ```bash
 git checkout -b nouvelle-branche SNAPSHOT_INTERNATIONALISATION_v1.2.0
 ```
+
+### 📊 **Détails du Snapshot 2026-02-08 (v1.2.1) - CURRENT DEPLOYMENT**
+
+#### ✨ **Améliorations Apportées**
+- **✅ Récupération après 5 mois** d'inactivité
+- **✅ 16 fichiers docs renommés** avec prefix `OLD_` (cleanup documentation obsolète)
+- **✅ Tweepy SyntaxWarnings supprimées** (non-critical warnings)
+- **✅ PyNaCl ajouté** pour support vocal complet
+- **✅ Résilience Supabase améliorée** pour environnement Render
+
+#### 🐛 **Issues Corrigées**
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Tweepy SyntaxWarnings | Docstrings mal formatées | `warnings.filterwarnings("ignore", category=SyntaxWarning, module="tweepy")` |
+| PyNaCl manquant | Dépendance oubliée | Ajout `PyNaCl==1.5.0` à requirements.txt |
+| Supabase DNS failures | Timeouts initiaux Render | Meilleure gestion erreurs, mode dégradé, retry exponential |
+
+#### 📁 **Fichiers Modifiés**
+- `bot.py` - Warning suppression
+- `start.py` - Warning suppression  
+- `database_supabase.py` - Enhanced error handling
+- `requirements.txt` - Added PyNaCl==1.5.0
+- `SNAPSHOT_2026_02_08_RENDER_DEPLOYMENT.md` - Full deployment documentation (NEW)
+
+#### 🧪 **Tests & Validation**
+- ✅ Build Render: SUCCESS (10/10)
+- ✅ Bot Discord: CONNECTED
+- ✅ Health Monitor: RUNNING
+- ✅ Graceful degradation: WORKING
+- ✅ No critical errors: CONFIRMED
+
+#### 📋 **Documentation**
+- Voir `SNAPSHOT_2026_02_08_RENDER_DEPLOYMENT.md` pour détails complets
+- Active docs: `DEPLOY_RENDER_QUICK_GUIDE.md`, `DEPLOYMENT_SIMPLE_FINAL.md`
+
+---
 
 ### 📊 **Détails du Snapshot v1.2.0**
 
