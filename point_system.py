@@ -250,6 +250,42 @@ class PointSystem:
             logger.error(f"Error getting prison status: {e}", exc_info=True)
             return {'is_imprisoned': False, 'prison_time_remaining': 0}
     
+    async def try_rob(self, robber_id: str, victim_id: str) -> Tuple[bool, str]:
+        """Attempt to rob another user"""
+        try:
+            robber_id = str(robber_id)
+            victim_id = str(victim_id)
+            
+            # Get victim's current points
+            victim_data = self.database.get_user_data(victim_id)
+            if not victim_data:
+                return False, "❌ L'utilisateur n'existe pas dans la base de données."
+            
+            victim_points = victim_data.get('points', 0)
+            
+            # Victim must have at least 100 points to rob
+            if victim_points < 100:
+                return False, f"❌ La victime n'a pas assez de points pour valoir le coup! (Min: 100, Actuels: {victim_points})"
+            
+            # 60% success rate
+            success_rate = 0.6
+            if random.random() > success_rate:
+                return False, f"❌ Le vol a échoué! {victim_data.get('username', 'L\'utilisateur')} s'est défendu!"
+            
+            # Calculate steal amount: 10-30% of victim's points
+            steal_min = max(50, int(victim_points * 0.10))
+            steal_max = int(victim_points * 0.30)
+            steal_amount = random.randint(steal_min, steal_max)
+            
+            # Execute the robbery
+            self.database.remove_points(victim_id, steal_amount)
+            self.database.add_points(robber_id, steal_amount)
+            
+            return True, f"✅ Le vol réussit! Tu as volé **{steal_amount}** 💵 à {victim_data.get('username', 'l\'utilisateur')}!"
+        except Exception as e:
+            logger.error(f"Error in try_rob: {e}", exc_info=True)
+            return False, "❌ Une erreur s'est produite lors du vol."
+    
     # Propriétés de compatibilité
     @property
     def data(self) -> Dict:
