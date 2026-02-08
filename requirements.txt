@@ -5,7 +5,7 @@ supabase==2.7.4
 python-dotenv==1.0.1
 tweepy==4.14.0
 requests==2.31.0
-psycopg2-binary==2.9.9
+psycopg==3.1.12
 # Fix pkg_resources missing in Python 3.13
 setuptools==70.0.0
 # Phase 4A: Health Monitoring dependencies

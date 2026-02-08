@@ -490,6 +490,81 @@ class SupabaseDatabase:
             logger.error(f"Error getting command cooldown: {e}", exc_info=True)
             return 0
     
+    # === DAILY USAGE TRACKING (TECH Brief) ===
+    
+    def get_daily_usage(self, user_id: str, command: str) -> int:
+        """Get daily usage count for a command"""
+        try:
+            if not self.is_connected():
+                return 0
+            
+            # Get today's date
+            today = datetime.now().date().isoformat()
+            
+            result = self.supabase.table('command_usage').select('*').eq('user_id', user_id).eq('command_name', command).eq('date', today).execute()
+            
+            if result.data:
+                return result.data[0].get('usage_count', 0)
+            return 0
+            
+        except Exception as e:
+            logger.warning(f"Error getting daily usage: {e}")
+            return 0  # Graceful degradation
+    
+    def increment_daily_usage(self, user_id: str, command: str):
+        """Increment daily usage count for a command"""
+        try:
+            if not self.is_connected():
+                return
+            
+            # Get today's date
+            today = datetime.now().date().isoformat()
+            
+            # Try to update existing record
+            result = self.supabase.table('command_usage').select('*').eq('user_id', user_id).eq('command_name', command).eq('date', today).execute()
+            
+            if result.data:
+                # Increment existing
+                count = result.data[0].get('usage_count', 0)
+                self.supabase.table('command_usage').update({'usage_count': count + 1}).eq('user_id', user_id).eq('command_name', command).eq('date', today).execute()
+            else:
+                # Create new record
+                self.supabase.table('command_usage').insert({
+                    'user_id': user_id,
+                    'command_name': command,
+                    'date': today,
+                    'usage_count': 1
+                }).execute()
+                
+        except Exception as e:
+            logger.warning(f"Error incrementing daily usage: {e}")
+    
+    def get_last_work(self, user_id: str) -> float:
+        """Get timestamp of last work command"""
+        try:
+            if not self.is_connected():
+                return 0
+            
+            result = self.supabase.table('user_data').select('last_work').eq('user_id', user_id).execute()
+            if result.data:
+                return float(result.data[0].get('last_work', 0))
+            return 0
+            
+        except Exception as e:
+            logger.warning(f"Error getting last work: {e}")
+            return 0
+    
+    def set_last_work(self, user_id: str, timestamp: float):
+        """Set timestamp of last work command"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('user_data').update({'last_work': timestamp}).eq('user_id', user_id).execute()
+            
+        except Exception as e:
+            logger.warning(f"Error setting last work: {e}")
+    
     # === VOICE SESSIONS ===
     
     def start_voice_session(self, user_id: str, event_name: str = None):

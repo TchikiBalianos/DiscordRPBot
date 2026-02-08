@@ -50,7 +50,7 @@ class MockImghdr:
 
 def patch_audioop():
     """Installe le patch audioop avant tout import Discord"""
-    logger.info("🔧 Installation du patch audioop pour Python 3.13...")
+    logger.info("[+] Installation du patch audioop pour Python 3.13...")
     
     # Créer un module audioop mock
     mock_audioop = MockAudioop()
@@ -58,12 +58,12 @@ def patch_audioop():
     # L'injecter dans sys.modules
     sys.modules['audioop'] = mock_audioop
     
-    logger.info("✅ Patch audioop installé avec succès")
-    print("🎯 AUDIOOP PATCH: Module mock installé pour Python 3.13 compatibility")
+    logger.info("[OK] Patch audioop installé avec succès")
+    print("[PATCH] AUDIOOP PATCH: Module mock installe pour Python 3.13 compatibility")
 
 def patch_imghdr():
     """Installe le patch imghdr avant tout import Tweepy"""
-    logger.info("🔧 Installation du patch imghdr pour Python 3.13...")
+    logger.info("[+] Installation du patch imghdr pour Python 3.13...")
     
     # Créer un module imghdr mock
     mock_imghdr = MockImghdr()
@@ -71,8 +71,8 @@ def patch_imghdr():
     # L'injecter dans sys.modules
     sys.modules['imghdr'] = mock_imghdr
     
-    logger.info("✅ Patch imghdr installé avec succès")
-    print("🎯 IMGHDR PATCH: Module mock installé pour Python 3.13 compatibility")
+    logger.info("[OK] Patch imghdr installé avec succès")
+    print("[PATCH] IMGHDR PATCH: Module mock installe pour Python 3.13 compatibility")
 
 def patch_all():
     """Installe tous les patches de compatibilité Python 3.13"""

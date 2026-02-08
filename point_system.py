@@ -203,6 +203,38 @@ class PointSystem:
         except Exception as e:
             logger.error(f"Error setting user points: {e}", exc_info=True)
     
+    async def daily_work(self, user_id: str) -> Tuple[bool, str]:
+        """Complete daily work for points"""
+        try:
+            now = datetime.now().timestamp()
+            last_work = self.database.get_last_work(user_id)
+            
+            WORK_COOLDOWN = 7200  # 2 hours
+            WORK_MIN_AMOUNT = 100
+            WORK_MAX_AMOUNT = 500
+            
+            if now - last_work < WORK_COOLDOWN:
+                hours = int((WORK_COOLDOWN - (now - last_work)) / 3600)
+                return False, f"⏰ Tu dois attendre encore {hours}h avant de pouvoir travailler à nouveau!"
+            
+            # Random work reward
+            amount = random.randint(WORK_MIN_AMOUNT, WORK_MAX_AMOUNT)
+            self.database.add_points(user_id, amount)
+            self.database.set_last_work(user_id, now)
+            
+            return True, f"Tu as gagné **{amount}** 💵 en travaillant dur! 💼"
+        except Exception as e:
+            logger.error(f"Error in daily_work: {e}", exc_info=True)
+            return False, "❌ Une erreur s'est produite lors du travail."
+    
+    async def get_monthly_leaderboard(self) -> List[Tuple[str, Dict]]:
+        """Get the monthly leaderboard"""
+        try:
+            return self.database.get_leaderboard(limit=100)
+        except Exception as e:
+            logger.error(f"Error getting monthly leaderboard: {e}", exc_info=True)
+            return []
+    
     # Propriétés de compatibilité
     @property
     def data(self) -> Dict:

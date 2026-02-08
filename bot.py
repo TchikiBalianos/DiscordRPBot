@@ -69,13 +69,13 @@ class EngagementBot(commands.Bot):
             logger.info("Loading Commands cog...")
             from commands import Commands
             commands_cog = Commands(self, self.point_system, self.twitter_handler)
-            await self.add_cog(commands_cog)
+            self.add_cog(commands_cog)
             
             # Load gang commands
             logger.info("Loading Gang Commands cog...")
             from gang_commands import GangCommands
             gang_commands_cog = GangCommands(self, self.db)
-            await self.add_cog(gang_commands_cog)
+            self.add_cog(gang_commands_cog)
             
             logger.info("Commands cogs loaded successfully")
             all_commands = sorted([c.name for c in self.commands])
@@ -124,6 +124,14 @@ class EngagementBot(commands.Bot):
         """Bot is ready"""
         logger.info(f'{self.user} has connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
+        
+        # Vérifier si les cogs sont chargés, sinon les charger
+        if not self.cogs:
+            logger.info("⚠️ No cogs loaded yet, loading now...")
+            try:
+                await self.setup_hook()
+            except Exception as e:
+                logger.error(f"Failed to load cogs in on_ready: {e}", exc_info=True)
         
         # Vérifier l'intégrité des systèmes
         await self._health_check()
