@@ -32,30 +32,30 @@ def start_health_monitor():
         from health_monitoring import run_health_server
         # Render utilise PORT, fallback sur HEALTH_PORT puis 8000
         port = int(os.getenv('PORT', os.getenv('HEALTH_PORT', 8000)))
-        logger.info(f"🔍 Starting health monitor on port {port}")
+        logger.info(f"[MONITOR] Starting health monitor on port {port}")
         run_health_server(port)
     except Exception as e:
-        logger.error(f"❌ Failed to start health monitor: {e}")
+        logger.error(f"[ERROR] Failed to start health monitor: {e}")
 
 def main():
     """Main function with integrated health monitoring"""
-    logger.info("🚀 Starting Discord bot with Health Monitoring on Railway...")
+    logger.info("[START] Starting Discord bot with Health Monitoring on Railway...")
     
     # Charger les variables d'environnement
     load_dotenv()
     
     # Vérifier le token Discord
     if not os.getenv('DISCORD_TOKEN'):
-        logger.error("❌ DISCORD_TOKEN not found!")
+        logger.error("[ERROR] DISCORD_TOKEN not found!")
         sys.exit(1)
     
-    logger.info("✅ Environment variables loaded")
+    logger.info("[OK] Environment variables loaded")
     
     # Démarrer le serveur de monitoring dans un thread séparé
     if os.getenv('ENABLE_HEALTH_MONITOR', 'true').lower() == 'true':
         health_thread = threading.Thread(target=start_health_monitor, daemon=True)
         health_thread.start()
-        logger.info("✅ Health monitoring thread started")
+        logger.info("[OK] Health monitoring thread started")
         
         # Attendre que le serveur de monitoring démarre
         time.sleep(2)
@@ -66,7 +66,7 @@ def main():
         import asyncio
         asyncio.run(bot_main())
     except Exception as e:
-        logger.error(f"💥 Bot error: {e}", exc_info=True)
+        logger.error(f"[ERROR] Bot error: {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":

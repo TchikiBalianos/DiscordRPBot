@@ -67,9 +67,9 @@ class HealthMonitor:
         # Initialiser la base de données
         try:
             self.database = SupabaseDatabase()
-            logger.info("✅ Database connection initialized")
+            logger.info("[OK] Database connection initialized")
         except Exception as e:
-            logger.error(f"❌ Database initialization failed: {e}")
+            logger.error(f"[ERROR] Database initialization failed: {e}")
     
     def get_system_metrics(self) -> Dict[str, Any]:
         """Récupérer les métriques système"""
@@ -204,7 +204,7 @@ class HealthMonitor:
     
     async def perform_comprehensive_health_check(self) -> Dict[str, Any]:
         """Effectuer un check de santé complet"""
-        logger.info("🔍 Performing comprehensive health check...")
+        logger.info("[MONITOR] Performing comprehensive health check...")
         
         # Métriques système
         system_metrics = self.get_system_metrics()
@@ -382,11 +382,11 @@ def run_health_server(port: int = 8000):
     render_port = os.getenv('PORT')
     if render_port:
         port = int(render_port)
-        logger.info(f"🌐 Using Render PORT environment variable: {port}")
+        logger.info(f"[NETWORK] Using Render PORT environment variable: {port}")
     else:
-        logger.info(f"🌐 Using fallback port: {port}")
+        logger.info(f"[NETWORK] Using fallback port: {port}")
     
-    logger.info(f"🌐 Starting health monitoring server on 0.0.0.0:{port}")
+    logger.info(f"[NETWORK] Starting health monitoring server on 0.0.0.0:{port}")
     
     try:
         uvicorn.run(

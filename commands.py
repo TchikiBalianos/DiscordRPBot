@@ -371,18 +371,20 @@ class Commands(commands.Cog):
             leaderboard = await self.points.get_monthly_leaderboard()
 
             embed = discord.Embed(
-                title="🏆 Classement Mensuel des Thugz",
+                title="[TARGET] Classement Mensuel des Thugz",
                 description="Les plus grands gangsters du mois:",
                 color=discord.Color.gold()
             )
 
-            for i, (user_id, data) in enumerate(leaderboard[:10], 1):
+            for i, user_data in enumerate(leaderboard[:10], 1):
                 try:
+                    user_id = str(user_data.get('user_id', ''))
+                    points = user_data.get('points', 0)
                     member = await ctx.guild.fetch_member(int(user_id))
                     name = member.name if member else f"Membre {user_id}"
                     embed.add_field(
                         name=f"{i}. {name}",
-                        value=f"💰 {data['points']} points",
+                        value=f"[MONEY] {points} points",
                         inline=False
                     )
                 except:
@@ -536,15 +538,15 @@ class Commands(commands.Cog):
                 return
 
             embed = discord.Embed(
-                title="🏢 Status Prison",
+                title="[PRISON] Status Prison",
                 description=f"Status de {target.name}",
                 color=discord.Color.dark_grey()
             )
 
-            embed.add_field(name="⏳ Temps restant", value=f"{status['time_left']} secondes", inline=False)
-            if status['role']:
-                embed.add_field(name="👤 Rôle", value=status['role'], inline=True)
-                embed.add_field(name="📈 Bonus", value=status['role_bonus'], inline=True)
+            embed.add_field(name="[RETRY] Temps restant", value=f"{status.get('prison_time_remaining', 0)} secondes", inline=False)
+            if status.get('role'):
+                embed.add_field(name="[NETWORK] Role", value=status['role'], inline=True)
+                embed.add_field(name="[STATS] Bonus", value=status.get('role_bonus', 0), inline=True)
 
             await ctx.send(embed=embed)
 

@@ -41,7 +41,7 @@ class SupabaseDatabase:
         self.is_reconnecting = False
         self._initialize_client()
         
-        logger.info(f"🔧 Database resilience configured: retries={self.max_retries}, timeout={self.connection_timeout}s")
+        logger.info(f"[CONFIG] Database resilience configured: retries={self.max_retries}, timeout={self.connection_timeout}s")
     
     def _calculate_backoff_delay(self, attempt: int) -> float:
         """Calculer le délai d'attente avec exponential backoff et jitter"""
@@ -58,13 +58,13 @@ class SupabaseDatabase:
                 key = os.getenv('SUPABASE_ANON_KEY')
                 
                 if not url or not key:
-                    logger.error("⚠️ Supabase credentials not found in environment variables")
+                    logger.error("[WARNING] Supabase credentials not found in environment variables")
                     logger.error("   Make sure SUPABASE_URL and SUPABASE_ANON_KEY are set")
                     self.supabase = None
                     return
                 
                 self.supabase = create_client(url, key)
-                logger.info(f"✅ Supabase client initialized successfully (attempt {attempt + 1})")
+                logger.info(f"[OK] Supabase client initialized successfully (attempt {attempt + 1})")
                 
                 # Test de connexion robuste avec timeout
                 # En environnement Render, les première tentatives peuvent échouer
@@ -73,12 +73,12 @@ class SupabaseDatabase:
                 if success:
                     self.connection_failures = 0
                     self.last_connection_attempt = datetime.now()
-                    logger.info("✅ Supabase connection test successful - Database is reachable")
+                    logger.info("[OK] Supabase connection test successful - Database is reachable")
                     return
                 else:
                     # Si test échoue, on continue anyway - la connexion peut être lente au démarrage
                     if attempt == self.max_retries - 1:
-                        logger.warning("⚠️ Initial connection test failed, but client is created. Will retry during operations.")
+                        logger.warning("[WARNING] Initial connection test failed, but client is created. Will retry during operations.")
                         self.last_connection_attempt = datetime.now()
                         # Ne pas lever une exception - le bot fonctionnera en mode dégradé
                         return
@@ -92,20 +92,20 @@ class SupabaseDatabase:
                 
                 # Identifier le type d'erreur
                 if "Name or service not known" in error_details or "[Errno -2]" in error_details:
-                    logger.warning(f"🌐 {error_msg}: DNS/Network issue - {error_details}")
+                    logger.warning(f"[NETWORK] {error_msg}: DNS/Network issue - {error_details}")
                 elif "timeout" in error_details.lower():
-                    logger.warning(f"⏱️ {error_msg}: Connection timeout - {error_details}")
+                    logger.warning(f"[TIMEOUT] {error_msg}: Connection timeout - {error_details}")
                 elif "refused" in error_details.lower():
-                    logger.warning(f"🔒 {error_msg}: Connection refused - {error_details}")
+                    logger.warning(f"[REFUSED] {error_msg}: Connection refused - {error_details}")
                 else:
-                    logger.warning(f"❌ {error_msg}: {error_details}")
+                    logger.warning(f"[ERROR] {error_msg}: {error_details}")
                 
                 if attempt < self.max_retries - 1:
                     delay = self._calculate_backoff_delay(attempt)
-                    logger.info(f"   ⏳ Retrying in {delay:.2f}s... (this is normal in Render during startup)")
+                    logger.info(f"   [RETRY] Retrying in {delay:.2f}s... (this is normal in Render during startup)")
                     time.sleep(delay)
                 else:
-                    logger.error(f"   🚨 All {self.max_retries} attempts failed. Bot will run with LIMITED FUNCTIONALITY.")
+                    logger.error(f"   [CRITICAL] All {self.max_retries} attempts failed. Bot will run with LIMITED FUNCTIONALITY.")
                     logger.error(f"   Check: 1) Network connectivity 2) Render environment variables 3) Supabase status")
                     self.supabase = None
     
@@ -167,7 +167,7 @@ class SupabaseDatabase:
                 
                 # Reset les compteurs d'échec en cas de succès
                 if self.connection_failures > 0:
-                    logger.info(f"✅ Database operation '{operation_name}' successful after reconnection")
+                    logger.info(f"[OK] Database operation '{operation_name}' successful after reconnection")
                     self.connection_failures = 0
                 
                 return result
@@ -180,19 +180,19 @@ class SupabaseDatabase:
                 
                 # Identifier les erreurs de connexion spécifiques
                 if any(keyword in str(e).lower() for keyword in ['connection', 'timeout', 'network', 'unreachable']):
-                    logger.warning(f"🔌 Connection issue detected: {error_msg}")
+                    logger.warning(f"[CONNECTION] Connection issue detected: {error_msg}")
                 else:
-                    logger.error(f"❌ {error_msg}")
+                    logger.error(f"[ERROR] {error_msg}")
                 
                 if attempt < self.max_retries - 1:
                     delay = self._calculate_backoff_delay(attempt)
-                    logger.info(f"⏳ Retrying in {delay:.2f}s...")
+                    logger.info(f"[RETRY] Retrying in {delay:.2f}s...")
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"💥 All retry attempts exhausted for '{operation_name}'")
+                    logger.error(f"[CRASH] All retry attempts exhausted for '{operation_name}'")
         
         # Si tous les retries ont échoué, utiliser le mode dégradé si possible
-        logger.error(f"🚨 Database operation '{operation_name}' failed permanently. Last error: {last_exception}")
+        logger.error(f"[CRITICAL] Database operation '{operation_name}' failed permanently. Last error: {last_exception}")
         return self._handle_degraded_mode(operation_name, last_exception)
     
     async def _attempt_reconnection(self):
@@ -202,19 +202,19 @@ class SupabaseDatabase:
         
         self.is_reconnecting = True
         try:
-            logger.info("🔄 Attempting database reconnection...")
+            logger.info("[RECONNECT] Attempting database reconnection...")
             
             # Réinitialiser le client
             self.supabase = None
             self._initialize_client()
             
             if self.is_connected():
-                logger.info("✅ Database reconnection successful")
+                logger.info("[OK] Database reconnection successful")
             else:
-                logger.error("❌ Database reconnection failed")
+                logger.error("[ERROR] Database reconnection failed")
                 
         except Exception as e:
-            logger.error(f"❌ Reconnection attempt failed: {e}")
+            logger.error(f"[ERROR] Reconnection attempt failed: {e}")
         finally:
             self.is_reconnecting = False
     
@@ -283,17 +283,27 @@ class SupabaseDatabase:
                 return new_user
         
         try:
-            # Utiliser le système de retry asynchrone
-            import asyncio
-            return asyncio.run(self._execute_with_retry("get_user_data", _get_user_operation))
+            # Essayer d'obtenir l'utilisateur directement (Supabase est synchrone)
+            result = self.supabase.table('users').select('*').eq('user_id', user_id).execute()
+            if result.data:
+                return result.data[0]
+            else:
+                # Create new user
+                new_user = {
+                    'user_id': user_id,
+                    'points': 0
+                }
+                self.supabase.table('users').insert(new_user).execute()
+                logger.info(f"Created new user: {user_id}")
+                return new_user
         except Exception as e:
-            logger.error(f"Failed to get user data after all retries: {e}")
+            logger.error(f"Failed to get user data: {e}")
             # Mode dégradé : retourner des données par défaut
             return {'user_id': user_id, 'points': 0}
 
     def get_user_points(self, user_id: str) -> int:
         """Get user points with resilience"""
-        def _get_points_operation():
+        try:
             if not self.supabase:
                 raise Exception("Database not connected")
             
@@ -308,19 +318,15 @@ class SupabaseDatabase:
                     'points': 0
                 }).execute()
                 return 0
-        
-        try:
-            import asyncio
-            return asyncio.run(self._execute_with_retry("get_user_points", _get_points_operation))
         except Exception as e:
-            logger.error(f"Failed to get user points after all retries: {e}")
+            logger.error(f"Failed to get user points: {e}")
             return 0  # Mode dégradé
 
     def add_points(self, user_id: str, amount: int, reason: str = "") -> bool:
-        """Add points to user with retry logic"""
-        def _add_points_operation():
-            if not self.supabase:
-                raise Exception("Database not connected")
+        """Add points to user"""
+        try:
+            if not self.is_connected():
+                return False
             
             # Vérifier si l'utilisateur existe
             user_result = self.supabase.table('users').select('points').eq('user_id', user_id).execute()
@@ -346,7 +352,7 @@ class SupabaseDatabase:
                 return True
             else:
                 # Créer un nouvel utilisateur
-                initial_points = max(0, amount)  # Éviter les points négatifs pour nouveaux users
+                initial_points = max(0, amount)
                 self.supabase.table('users').insert({
                     'user_id': user_id,
                     'points': initial_points
@@ -361,33 +367,9 @@ class SupabaseDatabase:
                     }).execute()
                 
                 return True
-        
-        try:
-            import asyncio
-            return asyncio.run(self._execute_with_retry("add_points", _add_points_operation))
         except Exception as e:
-            logger.error(f"Failed to add points after all retries: {e}")
-            return False  # Mode dégradé
-            logger.error(f"Error getting user data for {user_id}: {e}", exc_info=True)
-            # Fallback : retourner des données par défaut
-            return {'user_id': user_id, 'points': 0}
-    
-    def add_points(self, user_id: str, points: int):
-        """Add points to user"""
-        try:
-            if not self.is_connected():
-                return
-            
-            # Use the SQL function for atomic operation
-            result = self.supabase.rpc('add_user_points', {
-                'p_user_id': user_id,
-                'p_points': points
-            }).execute()
-            
-            logger.info(f"Added {points} points to user {user_id}")
-            
-        except Exception as e:
-            logger.error(f"Error adding points: {e}", exc_info=True)
+            logger.error(f"Error adding points: {e}")
+            return False
     
     def remove_points(self, user_id: str, points: int) -> bool:
         """Remove points from user"""

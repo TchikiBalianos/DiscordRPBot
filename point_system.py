@@ -235,6 +235,21 @@ class PointSystem:
             logger.error(f"Error getting monthly leaderboard: {e}", exc_info=True)
             return []
     
+    async def get_prison_status(self, user_id: str) -> Dict:
+        """Get user prison status"""
+        try:
+            user_data = self.database.get_user_data(user_id)
+            # Pour l'instant, retourner un dict avec les infos basiques
+            # (prison n'est pas encore implémenté en full)
+            return {
+                'is_imprisoned': False,
+                'prison_time_remaining': 0,
+                'reason': 'N/A'
+            }
+        except Exception as e:
+            logger.error(f"Error getting prison status: {e}", exc_info=True)
+            return {'is_imprisoned': False, 'prison_time_remaining': 0}
+    
     # Propriétés de compatibilité
     @property
     def data(self) -> Dict:

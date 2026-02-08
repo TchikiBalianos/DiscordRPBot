@@ -127,7 +127,7 @@ class EngagementBot(commands.Bot):
         
         # Vérifier si les cogs sont chargés, sinon les charger
         if not self.cogs:
-            logger.info("⚠️ No cogs loaded yet, loading now...")
+            logger.info("[WARNING] No cogs loaded yet, loading now...")
             try:
                 await self.setup_hook()
             except Exception as e:
@@ -144,7 +144,7 @@ class EngagementBot(commands.Bot):
         if self.db and self.db.is_connected():
             try:
                 self.db.cleanup_expired_data()
-                logger.info("✅ Database cleanup completed")
+                logger.info("[OK] Database cleanup completed")
             except Exception as e:
                 logger.error(f"Database cleanup failed: {e}")
     
@@ -153,23 +153,23 @@ class EngagementBot(commands.Bot):
         try:
             # Vérifier la base de données
             if not self.db or not self.db.is_connected():
-                logger.error("❌ Database connection failed")
+                logger.error("[ERROR] Database connection failed")
             else:
-                logger.info("✅ Database connection OK")
+                logger.info("[OK] Database connection OK")
             
             # Vérifier le système de points
             if not self.point_system:
-                logger.error("❌ Point system not initialized")
+                logger.error("[ERROR] Point system not initialized")
             elif not hasattr(self.point_system, 'database'):
-                logger.error("❌ Point system missing database")
+                logger.error("[ERROR] Point system missing database")
             else:
-                logger.info("✅ Point system OK")
+                logger.info("[OK] Point system OK")
             
             # Vérifier Twitter
             if not self.twitter_handler:
-                logger.warning("⚠️ Twitter handler not available")
+                logger.warning("[WARNING] Twitter handler not available")
             else:
-                logger.info("✅ Twitter handler OK")
+                logger.info("[OK] Twitter handler OK")
             
         except Exception as e:
             logger.error(f"Health check failed: {e}", exc_info=True)
@@ -210,23 +210,23 @@ class EngagementBot(commands.Bot):
                 return
             
             elif isinstance(error, commands.MissingRequiredArgument):
-                await ctx.send(f"❌ Argument manquant. Utilisez `!help {ctx.command}` pour voir la syntaxe.")
+                await ctx.send(f"[ERROR] Argument manquant. Utilisez `!help {ctx.command}` pour voir la syntaxe.")
             
             elif isinstance(error, commands.BadArgument):
-                await ctx.send("❌ Argument invalide. Vérifiez votre commande.")
+                await ctx.send("[ERROR] Argument invalide. Vérifiez votre commande.")
             
             elif isinstance(error, commands.CheckFailure):
                 logger.warning(f"Check failure for {ctx.author}: {str(error)}")
-                await ctx.send("❌ Vous n'avez pas la permission d'utiliser cette commande ou vous avez atteint la limite quotidienne.")
+                await ctx.send("[ERROR] Vous n'avez pas la permission d'utiliser cette commande ou vous avez atteint la limite quotidienne.")
             
             elif isinstance(error, AttributeError):
                 logger.error(f"AttributeError in command {ctx.command}: {str(error)}", exc_info=True)
-                await ctx.send("❌ Erreur système. L'équipe a été notifiée.")
+                await ctx.send("[ERROR] Erreur système. L'équipe a été notifiée.")
             
             else:
                 logger.error(f"Unhandled command error: {str(error)}", exc_info=True)
                 logger.error(f"Command: {ctx.command} | Author: {ctx.author} | Guild: {ctx.guild}")
-                await ctx.send("❌ Une erreur s'est produite lors de l'exécution de la commande.")
+                await ctx.send("[ERROR] Une erreur s'est produite lors de l'exécution de la commande.")
         
         except Exception as e:
             logger.error(f"Error in error handler: {e}", exc_info=True)

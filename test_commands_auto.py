@@ -201,12 +201,12 @@ class CommandTester:
         
         logger.info(f"\n[PASSED] {len(self.results['passed'])}/{len(self.results['passed']) + len(self.results['failed'])} tests")
         for test in self.results['passed']:
-            logger.info(f"  ✓ {test['name']}: {test['message']}")
+            logger.info(f"  [OK] {test['name']}: {test['message']}")
         
         if self.results['failed']:
             logger.info(f"\n[FAILED] {len(self.results['failed'])} tests")
             for test in self.results['failed']:
-                logger.error(f"  ✗ {test['name']}: {test['error']}")
+                logger.error(f"  [ERROR] {test['name']}: {test['error']}")
         
         # Sauvegarder le rapport en JSON
         report = {

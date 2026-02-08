@@ -58,7 +58,7 @@ def patch_audioop():
     # L'injecter dans sys.modules
     sys.modules['audioop'] = mock_audioop
     
-    logger.info("[OK] Patch audioop installé avec succès")
+    logger.info("[OK] Patch audioop installe avec succes")
     print("[PATCH] AUDIOOP PATCH: Module mock installe pour Python 3.13 compatibility")
 
 def patch_imghdr():
@@ -71,7 +71,7 @@ def patch_imghdr():
     # L'injecter dans sys.modules
     sys.modules['imghdr'] = mock_imghdr
     
-    logger.info("[OK] Patch imghdr installé avec succès")
+    logger.info("[OK] Patch imghdr installe avec succes")
     print("[PATCH] IMGHDR PATCH: Module mock installe pour Python 3.13 compatibility")
 
 def patch_all():
