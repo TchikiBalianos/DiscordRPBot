@@ -29,6 +29,10 @@ class GangWarSystem:
     def declare_war(self, attacker_gang_id: str, defender_gang_id: str, war_type: WarType, stake: str = None) -> Tuple[bool, str]:
         """Declare war against another gang"""
         try:
+            # Ensure gang_wars dict exists
+            if "gang_wars" not in self.db.data:
+                self.db.data["gang_wars"] = {}
+            
             if attacker_gang_id == defender_gang_id:
                 return False, "Vous ne pouvez pas déclarer la guerre à votre propre gang."
             
@@ -86,6 +90,9 @@ class GangWarSystem:
     def join_war(self, user_id: str, side: str) -> Tuple[bool, str]:
         """Join an active war"""
         try:
+            if "gang_wars" not in self.db.data:
+                return False, "Aucune guerre n'est en cours."
+            
             gang_id = self.gang_system.get_user_gang(user_id)
             if not gang_id:
                 return False, "Vous devez être membre d'un gang pour participer à une guerre."
@@ -268,8 +275,8 @@ class GangWarSystem:
             logger.error(f"Error distributing war rewards: {e}", exc_info=True)
     
     def _gang_in_active_war(self, gang_id: str) -> bool:
-        """Check if gang is in an active war"""
-        for war in self.db.data["gang_wars"].values():
+        """Check if gang is in an active war"""        if "gang_wars" not in self.db.data:
+            return False        for war in self.db.data["gang_wars"].values():
             if war["status"] in [WarStatus.DECLARED.value, WarStatus.PREPARATION.value, WarStatus.ACTIVE.value]:
                 if gang_id in [war["attacker_gang_id"], war["defender_gang_id"]]:
                     return True
@@ -278,6 +285,8 @@ class GangWarSystem:
     def get_active_wars(self) -> List[Dict]:
         """Get all active wars"""
         active_wars = []
+        if "gang_wars" not in self.db.data:
+            return active_wars
         for war in self.db.data["gang_wars"].values():
             if war["status"] in [WarStatus.DECLARED.value, WarStatus.PREPARATION.value, WarStatus.ACTIVE.value]:
                 active_wars.append(war)
@@ -285,8 +294,8 @@ class GangWarSystem:
     
     def get_gang_war_history(self, gang_id: str) -> List[Dict]:
         """Get war history for a gang"""
-        history = []
-        for war in self.db.data["gang_wars"].values():
+        history = []        if "gang_wars" not in self.db.data:
+            return history        for war in self.db.data["gang_wars"].values():
             if gang_id in [war["attacker_gang_id"], war["defender_gang_id"]]:
                 history.append(war)
         return sorted(history, key=lambda x: x["declared_at"], reverse=True)
@@ -294,6 +303,9 @@ class GangWarSystem:
     async def auto_update_wars(self):
         """Automatically update war statuses"""
         try:
+            if "gang_wars" not in self.db.data:
+                return
+            
             current_time = datetime.now()
             
             for war_id, war_data in self.db.data["gang_wars"].items():
