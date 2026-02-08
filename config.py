@@ -417,3 +417,53 @@ VOTE_REACTIONS = {
     "❌": "no"
 }
 VOTE_DURATION = 300  # 5 minutes
+
+
+# ============================================
+# 🔐 SECURITY & PERMISSIONS CONFIGURATION
+# ============================================
+
+# Propriétaire du bot (ID Discord)
+# ⚠️ IMPORTANTE: À configurer avec votre ID Discord personnel
+OWNER_ID = int(os.getenv('OWNER_ID', '0'))  # À remplacer avec votre ID
+
+# Staff approuvés (whitelist d'IDs - PAS de rôles spécialisés)
+# Utiliser SEULEMENT les IDs Discord d'utilisateurs de confiance
+APPROVED_STAFF_IDS = [
+    # OWNER_ID,  # Le propriétaire est automatiquement staff
+    # 123456789,  # Ajouter les IDs des modérateurs approuvés
+]
+
+# Serveurs de confiance pour commandes sensibles
+# Les commandes critiques ne sont exécutables que depuis ces serveurs
+TRUSTED_GUILD_IDS = []  # À remplir avec vos serveurs approuvés
+
+# === Limites de Modification de Points (Staff Commands) ===
+STAFF_EDITPOINTS_DAILY_LIMIT = 10  # Max 10 modifications de points par jour
+STAFF_EDITPOINTS_MAX_PER_CHANGE = 10000  # Max 10k points par modification unique
+STAFF_EDITPOINTS_MIN_PER_CHANGE = 1  # Min 1 point par modification
+
+# === Limites de Modification d'Items ===
+STAFF_EDITITEM_DAILY_LIMIT = 20  # Max 20 modifications d'items par jour
+STAFF_EDITITEM_GUILD_LIMIT = 100  # Max 100 items totaux par serveur
+
+# === Limites de Commandes Admin ===
+ADMIN_ACTION_RATE_LIMIT = 5  # Max 5 actions admin par 10 secondes
+
+# === Paramètres d'Audit ===
+ENABLE_AUDIT_LOGGING = True  # Activer les logs d'audit complets
+AUDIT_LOG_CRITICAL_ONLY = False  # False = log tout, True = log seulement actions critiques
+AUDIT_LOG_RETENTION_DAYS = 90  # Garder les logs d'audit pendant 90 jours
+
+# === Whitelist de Commandes par Serveur ===
+# Si activé, seules ces commandes sont disponibles sur serveurs non approuvés
+RESTRICTED_COMMANDS_ON_UNTRUSTED_SERVERS = {
+    "addpoints": True,      # Commande critiques
+    "removepoints": True,   # Commande critiques
+    "additem": True,        # Commande critiques
+    "removeitem": True,     # Commande critiques
+}
+
+# === Debug Mode ===
+# ⚠️ À désactiver en production!
+DEBUG_PERMISSIONS = False  # Si True, affiche les checks de permissions en console
