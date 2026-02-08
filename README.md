@@ -43,7 +43,41 @@
 └── guides/               # Documentation complète
 ```
 
-## 🧪 Tests
+## 🧪 Tests & Monitoring
+
+### 🤖 Système Automatisé (NOUVEAU)
+**[⚡ Quick Start](QUICK_START.md)** - Guide quotidien (3 étapes)
+
+#### Tests Automatisés
+```bash
+.\.venv\Scripts\python.exe test_commands_auto.py
+# Génère: test_report.json + test_report.log
+```
+**Résultat**: 5/7 tests ✅
+
+#### Monitoring du Bot
+```bash
+# Vérifier l'état
+python.exe bot_monitor.py --check
+
+# Monitoring continu (détecte crashes et redémarre)
+python.exe bot_monitor.py --monitor
+```
+
+#### Commit Intelligent (Auto-Restart)
+```bash
+# Commit + Push + Auto-restart si bot s'arrête
+.\commit_and_restart.ps1 -Message "fix: Description"
+```
+
+**Documentation Complète**:
+- 📄 [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md) - Vue d'ensemble complète
+- 📄 [QUICK_START.md](QUICK_START.md) - Guide quotidien ⭐
+- 📄 [TESTING_MONITORING_GUIDE.md](TESTING_MONITORING_GUIDE.md) - Guide détaillé
+- 📄 [BOT_MONITOR_GUIDE.md](BOT_MONITOR_GUIDE.md) - Guide monitoring
+- 📄 [FINAL_SUMMARY.md](FINAL_SUMMARY.md) - Résumé complet
+
+### Tests Classiques
 - `test_render_deployment.py` - Tests préparation Render
 - `test_deployment_simple.py` - Tests généraux
 - `test_production_endpoints.py` - Tests production
