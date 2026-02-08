@@ -179,6 +179,9 @@ class GangWarSystem:
     def process_war_results(self, war_id: str) -> Tuple[bool, str]:
         """Process war results and distribute rewards"""
         try:
+            if "gang_wars" not in self.db.data or war_id not in self.db.data.get("gang_wars", {}):
+                return False, "Cette guerre n'existe pas."
+            
             war_data = self.db.data["gang_wars"][war_id]
             
             if war_data["status"] != WarStatus.ACTIVE.value:
@@ -254,7 +257,7 @@ class GangWarSystem:
                 
             elif war_type == WarType.TERRITORY:
                 # Winner can claim a territory from loser
-                if war_data["stake"] and war_data["stake"] in self.db.data["territories"]:
+                if war_data["stake"] and "territories" in self.db.data and war_data["stake"] in self.db.data["territories"]:
                     territory = self.db.data["territories"][war_data["stake"]]
                     if territory["controlled_by"] == loser_gang_id:
                         territory["controlled_by"] = winner_gang_id
@@ -275,8 +278,10 @@ class GangWarSystem:
             logger.error(f"Error distributing war rewards: {e}", exc_info=True)
     
     def _gang_in_active_war(self, gang_id: str) -> bool:
-        """Check if gang is in an active war"""        if "gang_wars" not in self.db.data:
-            return False        for war in self.db.data["gang_wars"].values():
+        """Check if gang is in an active war"""
+        if "gang_wars" not in self.db.data:
+            return False
+        for war in self.db.data["gang_wars"].values():
             if war["status"] in [WarStatus.DECLARED.value, WarStatus.PREPARATION.value, WarStatus.ACTIVE.value]:
                 if gang_id in [war["attacker_gang_id"], war["defender_gang_id"]]:
                     return True
@@ -294,8 +299,10 @@ class GangWarSystem:
     
     def get_gang_war_history(self, gang_id: str) -> List[Dict]:
         """Get war history for a gang"""
-        history = []        if "gang_wars" not in self.db.data:
-            return history        for war in self.db.data["gang_wars"].values():
+        history = []
+        if "gang_wars" not in self.db.data:
+            return history
+        for war in self.db.data["gang_wars"].values():
             if gang_id in [war["attacker_gang_id"], war["defender_gang_id"]]:
                 history.append(war)
         return sorted(history, key=lambda x: x["declared_at"], reverse=True)
