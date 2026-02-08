@@ -472,6 +472,32 @@ RESTRICTED_COMMANDS_ON_UNTRUSTED_SERVERS = {
 # === Combat Moves ===
 # Emojis utilisés pour les réactions de combat
 COMBAT_MOVES = ['⚔️', '🛡️', '🤜']  # Attaque, Défense, Puissant
+COMBAT_MOVE_NAMES = {
+    '⚔️': 'Attaque rapide',
+    '🛡️': 'Défense',
+    '🤜': 'Coup puissant'
+}
+
+# === Combat Configuration ===
+COMBAT_REACTION_TIMEOUT = 300  # 5 minutes en secondes
+COMBAT_FIRST_MOVE_TIMEOUT = 60  # 1 minute pour choisir son premier coup
+COMBAT_ROUNDS = 1  # Nombre de rounds de combat
+COMBAT_MIN_BET = 50
+COMBAT_MAX_BET = 10000
+
+# Logique des coups (qui bat quoi):
+# Attaque < Défense < Puissance < Attaque
+COMBAT_MOVE_RESULTS = {
+    ('⚔️', '⚔️'): ('tie', 'Les deux attaques se heurtent de plein fouet!'),
+    ('⚔️', '🛡️'): ('lose', 'La défense stoppe net l\'attaque!'),
+    ('⚔️', '🤜'): ('lose', 'Le coup puissant transperce l\'attaque!'),
+    ('🛡️', '⚔️'): ('win', 'Votre défense neutralise l\'attaque!'),
+    ('🛡️', '🛡️'): ('tie', 'Les deux se défendent! Impasse totale...'),
+    ('🛡️', '🤜'): ('lose', 'Le coup puissant brise la défense!'),
+    ('🤜', '⚔️'): ('win', 'Votre coup puissant crève la défense!'),
+    ('🤜', '🛡️'): ('win', 'Même la défense échoue contre cette puissance!'),
+    ('🤜', '🤜'): ('tie', 'Les deux coups puissants s\'annulent!'),
+}
 
 # === Heist Configuration ===
 # Paramètres pour les braquages collectifs

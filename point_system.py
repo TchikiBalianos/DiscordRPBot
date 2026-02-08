@@ -322,41 +322,53 @@ class PointSystem:
             logger.error(f"Error in join_heist: {e}", exc_info=True)
             return False, "❌ Impossible de rejoindre le braquage."
     
-    async def start_combat(self, challenger_id: str, target_id: str, bet: int) -> Tuple[bool, str]:
-        """Start a combat between two users"""
+    async def evaluate_combat_moves(self, attacker_move: str, defender_move: str) -> Tuple[str, str]:
+        """Evaluate two combat moves and return winner and message"""
+        from config import COMBAT_MOVE_RESULTS, COMBAT_MOVE_NAMES
+        
+        key = (attacker_move, defender_move)
+        if key in COMBAT_MOVE_RESULTS:
+            result, message = COMBAT_MOVE_RESULTS[key]
+            attacker_move_name = COMBAT_MOVE_NAMES.get(attacker_move, 'Coup inconnu')
+            defender_move_name = COMBAT_MOVE_NAMES.get(defender_move, 'Coup inconnu')
+            full_message = f"{attacker_move} **{attacker_move_name}** vs {defender_move} **{defender_move_name}**\n\n{message}"
+            return result, full_message
+        return 'tie', f"Coups indefinis: {attacker_move} vs {defender_move}"
+    
+    async def start_combat(self, challenger_id: str, target_id: str, bet: int) -> Tuple[bool, str, dict]:
+        """Prepare a combat - returns info for interactive combat
+        Returns: (success, message, combat_info_dict)
+        """
         try:
+            from config import COMBAT_MIN_BET, COMBAT_MAX_BET
+            
             challenger_id = str(challenger_id)
             target_id = str(target_id)
+            
+            # Validate bet
+            if bet < COMBAT_MIN_BET or bet > COMBAT_MAX_BET:
+                return False, f"Mise doit etre entre {COMBAT_MIN_BET} et {COMBAT_MAX_BET}!", {}
             
             # Check both players have enough points
             challenger_data = self.database.get_user_data(challenger_id)
             target_data = self.database.get_user_data(target_id)
             
             if not challenger_data or challenger_data.get('points', 0) < bet:
-                return False, f"❌ Tu n'as pas assez de 💵 ({bet} requis)!"
+                return False, f"Tu n\'as pas assez de coins ({bet} requis)!", {}
             
             if not target_data or target_data.get('points', 0) < bet:
                 opponent_name = target_data.get('name', 'Ton adversaire') if target_data else 'Ton adversaire'
-                return False, f"❌ {opponent_name} n'a pas assez de 💵 pour cette mise!"
+                return False, f"{opponent_name} n\'a pas assez de coins!", {}
             
-            # Remove bet from both
-            self.database.remove_points(challenger_id, bet)
-            self.database.remove_points(target_id, bet)
-            
-            # 50/50 chance of winning
-            challenger_wins = random.random() > 0.5
-            
-            if challenger_wins:
-                # Challenger wins the pot (both bets)
-                self.database.add_points(challenger_id, bet * 2)
-                return True, f"⚔️ **RÉSULTAT:** Vous avez gagné **{bet * 2}** 💵!\n\n⏳ Réagissez avec ⚔️, 🛡️, ou 🤜 pour votre attaque!"
-            else:
-                # Target wins the pot
-                self.database.add_points(target_id, bet * 2)
-                return True, f"⚔️ **RÉSULTAT:** Vous avez perdu {bet} 💵...\n\n⏳ Réagissez avec ⚔️, 🛡️, ou 🤜 pour votre attaque!"
+            # Success - return combat info without modifying points yet
+            return True, "Combat initialise!", {
+                'challenger_id': challenger_id,
+                'target_id': target_id,
+                'bet': bet
+            }
         except Exception as e:
             logger.error(f"Error in start_combat: {e}", exc_info=True)
-            return False, "❌ Une erreur s'est produite lors du combat."
+            return False, "Erreur lors du combat.", {}
     
     # Propriétés de compatibilité
     @property
