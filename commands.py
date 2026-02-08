@@ -9,12 +9,17 @@ from tweepy.errors import TooManyRequests, NotFound, Unauthorized
 
 logger = logging.getLogger('EngagementBot')
 
-def is_staff():
-    """Check if the user has staff role or is an administrator"""
+def is_bot_owner():
+    """Check if the user is the bot owner (by Discord user ID)"""
     async def predicate(ctx):
-        if ctx.author.guild_permissions.administrator:
+        from config import OWNER_ID, APPROVED_STAFF_IDS
+        if ctx.author.id == OWNER_ID:
             return True
-        return any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles)
+        if ctx.author.id in APPROVED_STAFF_IDS:
+            return True
+        await ctx.send("❌ **Permission refusée.** Cette commande est réservée au propriétaire du bot.")
+        logger.warning(f"SECURITY: {ctx.author} ({ctx.author.id}) tried to use admin command '{ctx.command}' in {ctx.guild}")
+        return False
     return commands.check(predicate)
 
 def check_daily_limit(command_name):
@@ -115,9 +120,9 @@ class Commands(commands.Cog):
         logger.info(f"Commands being registered: {[method for method in dir(self) if method.endswith('_command')]}")
 
     @commands.command(name='debug')
-    @is_staff()
+    @is_bot_owner()
     async def debug_command(self, ctx):
-        """[STAFF] Debug command to check registered commands"""
+        """[OWNER] Debug command to check registered commands"""
         try:
             # Get all registered commands
             all_commands = sorted([c.name for c in self.bot.commands])
@@ -217,10 +222,10 @@ class Commands(commands.Cog):
                 }
             }
 
-            # Add staff commands if user is staff
-            if ctx.author.guild_permissions.administrator or \
-               any(role.name.lower() in ['staff', 'modo', 'admin'] for role in ctx.author.roles):
-                commands_list["⚡ Staff"] = {
+            # Add admin commands if user is bot owner
+            from config import OWNER_ID, APPROVED_STAFF_IDS
+            if ctx.author.id == OWNER_ID or ctx.author.id in APPROVED_STAFF_IDS:
+                commands_list["⚡ Admin (Owner Only)"] = {
                     "!addpoints @user montant": "Ajouter des points à un membre",
                     "!removepoints @user montant": "Retirer des points à un membre"
                 }
@@ -1016,9 +1021,9 @@ class Commands(commands.Cog):
             await ctx.send("Échange refusé.")
 
     @commands.command(name='addpoints', aliases=['ajouterpoints', 'donnerpoints'])
-    @is_staff()
+    @is_bot_owner()
     async def add_points(self, ctx, member: discord.Member = None, amount: int = None):
-        """[STAFF] Add points to a member / [STAFF] Ajouter des points à un membre"""
+        """[OWNER] Ajouter des points à un membre"""
         try:
             if not member or amount is None:
                 await ctx.send("❌ Usage: !addpoints @user <montant>")
@@ -1028,17 +1033,21 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Le montant doit être positif!")
                 return
 
+            if amount > STAFF_EDITPOINTS_MAX_PER_CHANGE:
+                await ctx.send(f"❌ Limite maximale: {STAFF_EDITPOINTS_MAX_PER_CHANGE} points par modification!")
+                return
+
             self.points.db.add_points(str(member.id), amount)
             await ctx.send(f"✅ {amount} points ajoutés à {member.name}!")
-            logger.info(f"Staff {ctx.author} added {amount} points to {member}")
+            logger.warning(f"AUDIT: Owner {ctx.author} ({ctx.author.id}) added {amount} points to {member} ({member.id})")
         except Exception as e:
             logger.error(f"Error in add_points command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='removepoints', aliases=['retirerpoints', 'enleverpoints'])
-    @is_staff()
+    @is_bot_owner()
     async def remove_points(self, ctx, member: discord.Member = None, amount: int = None):
-        """[STAFF] Remove points from a member / [STAFF] Retirer des points à un membre"""
+        """[OWNER] Retirer des points à un membre"""
         try:
             if not member or amount is None:
                 await ctx.send("❌ Usage: !removepoints @user <montant>")
@@ -1048,13 +1057,17 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Le montant doit être positif!")
                 return
 
+            if amount > STAFF_EDITPOINTS_MAX_PER_CHANGE:
+                await ctx.send(f"❌ Limite maximale: {STAFF_EDITPOINTS_MAX_PER_CHANGE} points par retrait!")
+                return
+
             current_points = self.points.db.get_user_points(str(member.id))
             if current_points < amount:
                 amount = current_points
 
             self.points.db.add_points(str(member.id), -amount)
             await ctx.send(f"✅ {amount} points retirés à {member.name}!")
-            logger.info(f"Staff {ctx.author} removed {amount} points from {member}")
+            logger.warning(f"AUDIT: Owner {ctx.author} ({ctx.author.id}) removed {amount} points from {member} ({member.id})")
         except Exception as e:
             logger.error(f"Error in remove_points command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
@@ -1062,9 +1075,9 @@ class Commands(commands.Cog):
     # === NOUVELLES COMMANDES ADMIN AVANCÉES (TECH Brief Phase 3B) ===
 
     @commands.command(name='additem', aliases=['ajouteritem', 'donneritem'])
-    @is_staff()
+    @is_bot_owner()
     async def admin_add_item(self, ctx, member: discord.Member = None, item_id: str = None, quantity: int = 1, *, reason: str = ""):
-        """[ADMIN] Add item(s) to a user's inventory / [ADMIN] Ajouter objet(s) à l'inventaire d'un utilisateur"""
+        """[OWNER] Ajouter objet(s) à l'inventaire d'un utilisateur"""
         try:
             if not member or not item_id:
                 await ctx.send("❌ Usage: !additem @user <item_id> [quantité] [raison]")
@@ -1116,9 +1129,9 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='removeitem', aliases=['retireritem', 'enleveritem'])
-    @is_staff()
+    @is_bot_owner()
     async def admin_remove_item(self, ctx, member: discord.Member = None, item_id: str = None, quantity: int = 1, *, reason: str = ""):
-        """[ADMIN] Remove item(s) from a user's inventory / [ADMIN] Retirer objet(s) de l'inventaire d'un utilisateur"""
+        """[OWNER] Retirer objet(s) de l'inventaire d'un utilisateur"""
         try:
             if not member or not item_id:
                 await ctx.send("❌ Usage: !removeitem @user <item_id> [quantité] [raison]")
@@ -1173,9 +1186,9 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='promote', aliases=['promouvoir', 'upgrader'])
-    @is_staff()
+    @is_bot_owner()
     async def admin_promote(self, ctx, member: discord.Member = None, new_role: str = None, *, reason: str = ""):
-        """[ADMIN] Promote a user to a higher role / [ADMIN] Promouvoir un utilisateur à un rôle supérieur"""
+        """[OWNER] Promouvoir un utilisateur à un rôle supérieur"""
         try:
             if not member or not new_role:
                 await ctx.send("❌ Usage: !promote @user <role> [raison]")
@@ -1239,9 +1252,9 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='demote', aliases=['retrograder', 'downgrade'])
-    @is_staff()
+    @is_bot_owner()
     async def admin_demote(self, ctx, member: discord.Member = None, new_role: str = None, *, reason: str = ""):
-        """[ADMIN] Demote a user to a lower role / [ADMIN] Rétrograder un utilisateur à un rôle inférieur"""
+        """[OWNER] Rétrograder un utilisateur à un rôle inférieur"""
         try:
             if not member or not new_role:
                 await ctx.send("❌ Usage: !demote @user <role> [raison]")

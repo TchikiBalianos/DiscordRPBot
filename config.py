@@ -424,14 +424,13 @@ VOTE_DURATION = 300  # 5 minutes
 # ============================================
 
 # Propriétaire du bot (ID Discord)
-# ⚠️ IMPORTANTE: À configurer avec votre ID Discord personnel
-OWNER_ID = int(os.getenv('OWNER_ID', '0'))  # À remplacer avec votre ID
+OWNER_ID = 250313844554072064
 
 # Staff approuvés (whitelist d'IDs - PAS de rôles spécialisés)
-# Utiliser SEULEMENT les IDs Discord d'utilisateurs de confiance
+# Le propriétaire est automatiquement reconnu, pas besoin de l'ajouter ici
 APPROVED_STAFF_IDS = [
-    # OWNER_ID,  # Le propriétaire est automatiquement staff
-    # 123456789,  # Ajouter les IDs des modérateurs approuvés
+    # Ajouter les IDs des modérateurs approuvés si besoin
+    # 123456789,
 ]
 
 # Serveurs de confiance pour commandes sensibles
