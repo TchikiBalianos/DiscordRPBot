@@ -10,6 +10,17 @@ import json
 from datetime import datetime
 from typing import List, Dict, Tuple
 import sys
+import os
+
+# Charger les variables d'environnement Supabase
+from dotenv import load_dotenv
+load_dotenv()
+
+# Si les credentials ne sont pas définis, les ajouter pour les tests
+if not os.getenv('SUPABASE_URL'):
+    os.environ['SUPABASE_URL'] = 'https://jfiffenfnikhoyvnwvfc.supabase.co'
+if not os.getenv('SUPABASE_ANON_KEY'):
+    os.environ['SUPABASE_ANON_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpmZWZlbmZuaWtob3l2bndsZmMiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTcwODcyMTkwMCwiZXhwIjoxNzI0Mjc3OTAwfQ.sWnBcqHIz8hRUjMzUSTjSz8MHxzWGxpFHhFwBmrfJp4'
 
 # Patches requis AVANT les imports nextcord
 import audioop_patch

@@ -1,48 +1,47 @@
 {
-  "timestamp": "2026-02-08T19:41:15.126395",
+  "timestamp": "2026-02-08T19:51:26.316188",
   "total_tests": 7,
-  "passed": 5,
-  "failed": 2,
+  "passed": 7,
+  "failed": 0,
   "results": {
     "passed": [
       {
+        "name": "Database Connection",
+        "message": "Connected to Supabase",
+        "timestamp": "2026-02-08T19:51:24.746304"
+      },
+      {
         "name": "User Creation",
         "message": "User created/found: 999999999999999999",
-        "timestamp": "2026-02-08T19:41:15.025545"
+        "timestamp": "2026-02-08T19:51:25.028366"
+      },
+      {
+        "name": "Add Points",
+        "message": "Points added: 0 -> 100",
+        "timestamp": "2026-02-08T19:51:25.571151"
       },
       {
         "name": "Points Command",
-        "message": "Points: 0",
-        "timestamp": "2026-02-08T19:41:15.060370"
+        "message": "Points: 100",
+        "timestamp": "2026-02-08T19:51:25.668588"
       },
       {
         "name": "Leaderboard Command",
-        "message": "Leaderboard has 0 entries",
-        "timestamp": "2026-02-08T19:41:15.076318"
+        "message": "Leaderboard has 2 entries",
+        "timestamp": "2026-02-08T19:51:25.806792"
       },
       {
         "name": "Prison Status Command",
         "message": "Prison status: {'is_imprisoned': False, 'prison_time_remaining': 0, 'reason': 'N/A'}",
-        "timestamp": "2026-02-08T19:41:15.091243"
+        "timestamp": "2026-02-08T19:51:25.916332"
       },
       {
         "name": "Work Command",
-        "message": "Tu as gagn\u00e9 **295** \ud83d\udcb5 en travaillant dur! \ud83d\udcbc",
-        "timestamp": "2026-02-08T19:41:15.107520"
+        "message": "Tu as gagn\u00e9 **185** \ud83d\udcb5 en travaillant dur! \ud83d\udcbc",
+        "timestamp": "2026-02-08T19:51:26.311860"
       }
     ],
-    "failed": [
-      {
-        "name": "Database Connection",
-        "error": "Database connection failed",
-        "timestamp": "2026-02-08T19:41:15.010159"
-      },
-      {
-        "name": "Add Points",
-        "error": "Points not added",
-        "timestamp": "2026-02-08T19:41:15.045129"
-      }
-    ],
+    "failed": [],
     "errors": []
   }
 }

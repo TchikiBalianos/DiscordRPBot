@@ -8,15 +8,15 @@ Un script Python qui teste TOUS les systèmes du bot sans nécessiter Discord :
 
 ```
 TEST SUITE EXÉCUTÉ:
+├─ ✓ Database Connection (connecté à Supabase)
 ├─ ✓ User Creation (utilisateur créé/récupéré)
+├─ ✓ Add Points (les points s'ajoutent correctement)
 ├─ ✓ Points Command (points disponibles)
 ├─ ✓ Leaderboard Command (classement fonctionne)
 ├─ ✓ Prison Status Command (statut de prison OK)
-├─ ✓ Work Command (le travail génère des points)
-├─ ✗ Database Connection (méthode is_connected manquante)
-└─ ✗ Add Points (les points ne s'ajoutent pas correctement)
+└─ ✓ Work Command (le travail génère des points)
 
-RÉSULTAT: 5/7 ✓ (71% de succès)
+RÉSULTAT: 7/7 ✓ (100% de succès) 🎉
 ```
 
 **Utilisation:**
