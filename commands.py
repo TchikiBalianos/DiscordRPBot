@@ -1072,6 +1072,60 @@ class Commands(commands.Cog):
             logger.error(f"Error in remove_points command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
+    @commands.command(name='resetcooldowns', aliases=['resetcd', 'resetlimits'])
+    @is_bot_owner()
+    async def reset_cooldowns(self, ctx, target: discord.Member = None):
+        """[OWNER] Reset tous les cooldowns et limites quotidiennes d'un utilisateur"""
+        try:
+            member = target or ctx.author
+            user_id = str(member.id)
+            db = self.points.db
+
+            reset_count = 0
+
+            # 1. Supprimer tous les cooldowns de commandes
+            if hasattr(db, 'supabase') and hasattr(db, 'is_connected') and db.is_connected():
+                # Reset cooldowns
+                try:
+                    db.supabase.table('user_cooldowns').delete().eq('user_id', user_id).execute()
+                    reset_count += 1
+                except Exception as e:
+                    logger.warning(f"Error resetting cooldowns: {e}")
+
+                # Reset daily usage
+                today = datetime.now().date().isoformat()
+                try:
+                    db.supabase.table('command_usage').delete().eq('user_id', user_id).eq('date', today).execute()
+                    reset_count += 1
+                except Exception as e:
+                    logger.warning(f"Error resetting daily usage: {e}")
+            elif hasattr(db, 'data'):
+                # Fallback JSON database
+                if 'cooldowns' in db.data:
+                    keys_to_remove = [k for k in db.data['cooldowns'] if user_id in str(db.data['cooldowns'].get(k, {}))]
+                    for k in keys_to_remove:
+                        if user_id in db.data['cooldowns'].get(k, {}):
+                            del db.data['cooldowns'][k][user_id]
+                            reset_count += 1
+                if 'daily_usage' in db.data and user_id in db.data['daily_usage']:
+                    del db.data['daily_usage'][user_id]
+                    reset_count += 1
+                db.save()
+
+            embed = discord.Embed(
+                title="🔄 Cooldowns & Limites Reset",
+                description=f"Tous les cooldowns et limites quotidiennes de **{member.display_name}** ont été réinitialisés.",
+                color=0x00FF00
+            )
+            embed.add_field(name="Utilisateur", value=f"{member.mention}", inline=True)
+            embed.add_field(name="Resets effectués", value=f"{reset_count}", inline=True)
+            await ctx.send(embed=embed)
+            logger.warning(f"AUDIT: Owner {ctx.author} ({ctx.author.id}) reset cooldowns for {member} ({member.id})")
+
+        except Exception as e:
+            logger.error(f"Error in reset_cooldowns: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite lors du reset.")
+
     # === NOUVELLES COMMANDES ADMIN AVANCÉES (TECH Brief Phase 3B) ===
 
     @commands.command(name='additem', aliases=['ajouteritem', 'donneritem'])
