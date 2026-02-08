@@ -1033,8 +1033,8 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Le montant doit être positif!")
                 return
 
-            if amount > STAFF_EDITPOINTS_MAX_PER_CHANGE:
-                await ctx.send(f"❌ Limite maximale: {STAFF_EDITPOINTS_MAX_PER_CHANGE} points par modification!")
+            if amount > STAFF_EDITPOINTS_MAX_ADD:
+                await ctx.send(f"❌ Limite maximale: {STAFF_EDITPOINTS_MAX_ADD} points par ajout!")
                 return
 
             self.points.db.add_points(str(member.id), amount)
@@ -1057,8 +1057,8 @@ class Commands(commands.Cog):
                 await ctx.send("❌ Le montant doit être positif!")
                 return
 
-            if amount > STAFF_EDITPOINTS_MAX_PER_CHANGE:
-                await ctx.send(f"❌ Limite maximale: {STAFF_EDITPOINTS_MAX_PER_CHANGE} points par retrait!")
+            if amount > STAFF_EDITPOINTS_MAX_REMOVE:
+                await ctx.send(f"❌ Limite maximale: {STAFF_EDITPOINTS_MAX_REMOVE} points par retrait!")
                 return
 
             current_points = self.points.db.get_user_points(str(member.id))

@@ -439,7 +439,8 @@ TRUSTED_GUILD_IDS = []  # À remplir avec vos serveurs approuvés
 
 # === Limites de Modification de Points (Staff Commands) ===
 STAFF_EDITPOINTS_DAILY_LIMIT = 10  # Max 10 modifications de points par jour
-STAFF_EDITPOINTS_MAX_PER_CHANGE = 10000  # Max 10k points par modification unique
+STAFF_EDITPOINTS_MAX_ADD = 10000  # Max 10k points par ajout
+STAFF_EDITPOINTS_MAX_REMOVE = 1000000  # Max 1M points par retrait
 STAFF_EDITPOINTS_MIN_PER_CHANGE = 1  # Min 1 point par modification
 
 # === Limites de Modification d'Items ===
