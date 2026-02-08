@@ -469,6 +469,17 @@ RESTRICTED_COMMANDS_ON_UNTRUSTED_SERVERS = {
     "removeitem": True,     # Commande critiques
 }
 
+# === Combat Moves ===
+# Emojis utilisés pour les réactions de combat
+COMBAT_MOVES = ['⚔️', '🛡️', '🤜']  # Attaque, Défense, Puissant
+
+# === Heist Configuration ===
+# Paramètres pour les braquages collectifs
+HEIST_MIN_REWARD = 500
+HEIST_MAX_REWARD = 2000
+HEIST_MAX_PARTICIPANTS = 5
+HEIST_SUCCESS_RATE = 0.65  # 65% de chance de succès
+
 # === Debug Mode ===
 # ⚠️ À désactiver en production!
 DEBUG_PERMISSIONS = False  # Si True, affiche les checks de permissions en console

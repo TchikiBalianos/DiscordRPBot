@@ -288,6 +288,76 @@ class PointSystem:
             logger.error(f"Error in try_rob: {e}", exc_info=True)
             return False, -4  # Error occurred
     
+    async def start_heist(self, leader_id: str) -> Tuple[bool, str]:
+        """Start a heist for the user"""
+        try:
+            from config import HEIST_SUCCESS_RATE, HEIST_MIN_REWARD, HEIST_MAX_REWARD
+            
+            # Check if user has enough points
+            user_data = self.database.get_user_data(leader_id)
+            if not user_data or user_data.get('points', 0) < 500:
+                return False, "❌ Tu as besoin d'au moins 500 💵 pour démarrer un braquage!"
+            
+            # 65% success rate
+            if random.random() > HEIST_SUCCESS_RATE:
+                # Failed heist - lose 20% of attempted stake
+                loss = min(int(user_data.get('points', 0) * 0.20), 1000)
+                self.database.remove_points(leader_id, loss)
+                return False, f"❌ Le braquage a échoué! Tu as perdu {loss} 💵..."
+            
+            # Success - random reward
+            reward = random.randint(HEIST_MIN_REWARD, HEIST_MAX_REWARD)
+            self.database.add_points(leader_id, reward)
+            
+            return True, f"✅ Le braquage réussit! Tu gagnes **{reward}** 💵!"
+        except Exception as e:
+            logger.error(f"Error in start_heist: {e}", exc_info=True)
+            return False, "❌ Une erreur s'est produite lors du braquage."
+    
+    async def join_heist(self, user_id: str) -> Tuple[bool, str]:
+        """Join an active heist (placeholder)"""
+        try:
+            return True, "✅ Tu as rejoint le braquage! Attends la fin du braquage du leader..."
+        except Exception as e:
+            logger.error(f"Error in join_heist: {e}", exc_info=True)
+            return False, "❌ Impossible de rejoindre le braquage."
+    
+    async def start_combat(self, challenger_id: str, target_id: str, bet: int) -> Tuple[bool, str]:
+        """Start a combat between two users"""
+        try:
+            challenger_id = str(challenger_id)
+            target_id = str(target_id)
+            
+            # Check both players have enough points
+            challenger_data = self.database.get_user_data(challenger_id)
+            target_data = self.database.get_user_data(target_id)
+            
+            if not challenger_data or challenger_data.get('points', 0) < bet:
+                return False, f"❌ Tu n'as pas assez de 💵 ({bet} requis)!"
+            
+            if not target_data or target_data.get('points', 0) < bet:
+                opponent_name = target_data.get('name', 'Ton adversaire') if target_data else 'Ton adversaire'
+                return False, f"❌ {opponent_name} n'a pas assez de 💵 pour cette mise!"
+            
+            # Remove bet from both
+            self.database.remove_points(challenger_id, bet)
+            self.database.remove_points(target_id, bet)
+            
+            # 50/50 chance of winning
+            challenger_wins = random.random() > 0.5
+            
+            if challenger_wins:
+                # Challenger wins the pot (both bets)
+                self.database.add_points(challenger_id, bet * 2)
+                return True, f"⚔️ **RÉSULTAT:** Vous avez gagné **{bet * 2}** 💵!\n\n⏳ Réagissez avec ⚔️, 🛡️, ou 🤜 pour votre attaque!"
+            else:
+                # Target wins the pot
+                self.database.add_points(target_id, bet * 2)
+                return True, f"⚔️ **RÉSULTAT:** Vous avez perdu {bet} 💵...\n\n⏳ Réagissez avec ⚔️, 🛡️, ou 🤜 pour votre attaque!"
+        except Exception as e:
+            logger.error(f"Error in start_combat: {e}", exc_info=True)
+            return False, "❌ Une erreur s'est produite lors du combat."
+    
     # Propriétés de compatibilité
     @property
     def data(self) -> Dict:
