@@ -299,7 +299,12 @@ COMMAND_NARRATIONS = {
     "rob": [
         "🦹 Tel un voleur dans la nuit, {user} se faufile silencieusement derrière {target}...",
         "🎭 Masqué et déterminé, {user} prépare son coup contre {target}...",
-        "🌙 Profitant de l'obscurité, {user} suit discrètement {target} dans une ruelle sombre..."
+        "🌙 Profitant de l'obscurité, {user} suit discrètement {target} dans une ruelle sombre...",
+        "🕵️ Avec la précision d'un professionnel, {user} cible {target}...",
+        "💨 Dans un élan foudroyant, {user} s'en prend à {target}...",
+        "🎯 L'occasion parfaite se présente... {user} attaque {target}...",
+        "🏃 {user} repère {target} seul et enclenche son plan...",
+        "😈 D'un geste rapide, {user} prive {target} de son argent..."
     ],
     "heist": [
         "🏦 La bande de {user} se réunit devant la banque, vérifiant une dernière fois leur équipement...",

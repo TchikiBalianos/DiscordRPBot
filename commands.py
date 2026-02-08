@@ -300,8 +300,36 @@ class Commands(commands.Cog):
             await ctx.send(narration)
             await asyncio.sleep(2)
 
-            success, message = await self.points.try_rob(str(ctx.author.id), str(target.id))
-            await ctx.send(message)
+            # Try to rob the target
+            success, amount = await self.points.try_rob(str(ctx.author.id), str(target.id), target.name)
+            
+            # Build the result message
+            if success:
+                # Success messages - multiple variants
+                success_messages = [
+                    f"✅ Le vol réussit! Tu as volé **{amount}** 💵 à {target.name}!",
+                    f"✅ Butin acquis! {target.name} vient de perdre **{amount}** 💵...",
+                    f"✅ Parfait! Tu subtilises **{amount}** 💵 à {target.name}!",
+                    f"✅ C'est fait! {amount} 💵 de {target.name} sont maintenant tiens!",
+                    f"✅ Le coup réussit! {amount} 💵 à {target.name} ont changé de propriétaire!"
+                ]
+                await ctx.send(random.choice(success_messages))
+            else:
+                # Failure messages based on error code
+                if amount == -1:
+                    await ctx.send(f"❌ L'utilisateur n'existe pas dans la base de données.")
+                elif amount == -2:
+                    await ctx.send(f"❌ La victime n'a pas assez de points pour valoir le coup!")
+                elif amount == -3:
+                    failure_messages = [
+                        f"❌ Le vol a échoué! {target.name} s'est défendu avec succès!",
+                        f"❌ Raté! {target.name} a senti venir le coup et s'est évité...",
+                        f"❌ Mauvaise chance! {target.name} te repère et t'échappe...",
+                        f"❌ Échec total! {target.name} était sur ses gardes..."
+                    ]
+                    await ctx.send(random.choice(failure_messages))
+                else:
+                    await ctx.send("❌ Une erreur s'est produite lors du vol.")
         except Exception as e:
             logger.error(f"Error in steal command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
