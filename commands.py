@@ -462,14 +462,14 @@ class Commands(commands.Cog):
     @commands.command(name='combat', aliases=['bataille', 'fight_general'])
     @check_cooldown_and_limit('combat')
     async def combat_command(self, ctx, target: discord.Member = None, bet: int = None):
-        """Start a general combat with another member (3h cooldown, max 5x/day) / Combat général"""
+        """Start a general combat with another member (3h cooldown, max 5x/day)"""
         try:
             if not target or not bet:
-                await ctx.send("❌ Usage: !combat @user <mise>")
+                await ctx.send("Usage: !combat @user <mise>")
                 return
 
             if target.id == ctx.author.id:
-                await ctx.send("❌ Tu ne peux pas te battre contre toi-même!")
+                await ctx.send("Tu ne peux pas te battre contre toi-meme!")
                 return
 
             # Get random narration for combat
@@ -478,21 +478,98 @@ class Commands(commands.Cog):
                 target=target.name
             )
             await ctx.send(narration)
-
-            # Wait for tension
             await asyncio.sleep(2)
 
-            success, message = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
-            if success:
-                combat_msg = await ctx.send(message)
-                for move in COMBAT_MOVES:
-                    await combat_msg.add_reaction(move)
-            else:
+            from config import COMBAT_MOVES, COMBAT_FIRST_MOVE_TIMEOUT, COMBAT_REACTION_TIMEOUT
+            
+            # Initialize combat
+            success, message, combat_info = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
+            if not success:
                 await ctx.send(message)
+                return
+            
+            # Step 1: Attacker chooses move
+            attacker_msg = await ctx.send(
+                f"Choisissez votre coup {ctx.author.mention}:\n"
+                f"cross = Attaque rapide\n"
+                f"shield = Defense\n"
+                f"fist = Coup puissant\n"
+                f"1 minute pour choisir!"
+            )
+            for move in COMBAT_MOVES:
+                await attacker_msg.add_reaction(move)
+            
+            # Wait for attacker reaction
+            try:
+                attacker_reaction = await self.bot.wait_for(
+                    'reaction_add',
+                    timeout=COMBAT_FIRST_MOVE_TIMEOUT,
+                    check=lambda r, u: (u.id == ctx.author.id and 
+                                       str(r.emoji) in COMBAT_MOVES and 
+                                       r.message.id == attacker_msg.id)
+                )
+                attacker_move = str(attacker_reaction[0].emoji)
+                await ctx.send(f"OK! {ctx.author.mention} a choisi: {attacker_move}")
+            except asyncio.TimeoutError:
+                await ctx.send(f"TIMEOUT! {ctx.author.mention} - Combat annule!")
+                return
+            
+            await asyncio.sleep(1)
+            
+            # Step 2: Defender must react
+            defender_msg = await ctx.send(
+                f"You have 5 MINUTES to defend {target.mention}!\n"
+                f"cross = Attaque rapide\n"
+                f"shield = Defense\n"
+                f"fist = Coup puissant"
+            )
+            for move in COMBAT_MOVES:
+                await defender_msg.add_reaction(move)
+            
+            # Wait for defender reaction with 5 minute timeout
+            try:
+                defender_reaction = await self.bot.wait_for(
+                    'reaction_add',
+                    timeout=COMBAT_REACTION_TIMEOUT,
+                    check=lambda r, u: (u.id == target.id and 
+                                       str(r.emoji) in COMBAT_MOVES and 
+                                       r.message.id == defender_msg.id)
+                )
+                defender_move = str(defender_reaction[0].emoji)
+                await ctx.send(f"OK! {target.mention} a reagi: {defender_move}")
+            except asyncio.TimeoutError:
+                # Defender loses
+                await ctx.send(f"TIMEOUT! {target.mention} n\'a pas reagi! {ctx.author.mention} gagne!")
+                self.points.database.remove_points(str(target.id), bet)
+                self.points.database.add_points(str(ctx.author.id), bet)
+                return
+            
+            # Evaluate moves
+            result, move_description = await self.points.evaluate_combat_moves(attacker_move, defender_move)
+            
+            await ctx.send(f"\n{move_description}")
+            await asyncio.sleep(2)
+            
+            # Apply results (win = attacker wins, lose = attacker loses)
+            if result == 'win':
+                # ATTACKER WINS
+                self.points.database.add_points(str(ctx.author.id), bet)
+                self.points.database.remove_points(str(target.id), bet)
+                await ctx.send(f"{ctx.author.mention} GAGNE! +{bet}")
+            elif result == 'lose':
+                # DEFENDER WINS
+                self.points.database.add_points(str(target.id), bet)
+                self.points.database.remove_points(str(ctx.author.id), bet)
+                await ctx.send(f"{target.mention} GAGNE! +{bet}")
+            else:
+                # TIE
+                self.points.database.add_points(str(ctx.author.id), bet)
+                self.points.database.add_points(str(target.id), bet)
+                await ctx.send(f"EGALITE! Chacun garde son argent")
 
         except Exception as e:
             logger.error(f"Error in combat command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite.")
+            await ctx.send("Une erreur est survenue.")
 
     @commands.command(name='fight', aliases=['bagarre'])
     @check_cooldown_and_limit('fight')
