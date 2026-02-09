@@ -585,16 +585,19 @@ class Commands(commands.Cog):
             await ctx.send(f"\n{move_description}")
             await asyncio.sleep(2)
             
-            # Apply results
+            # Apply results (win = attacker wins, lose = attacker loses)
             if result == 'win':
-                self.points.database.add_points(str(target.id), bet)
-                self.points.database.remove_points(str(ctx.author.id), bet)
-                await ctx.send(f"{target.mention} GAGNE! +{bet}")
-            elif result == 'lose':
+                # ATTACKER WINS
                 self.points.database.add_points(str(ctx.author.id), bet)
                 self.points.database.remove_points(str(target.id), bet)
                 await ctx.send(f"{ctx.author.mention} GAGNE! +{bet}")
+            elif result == 'lose':
+                # DEFENDER WINS
+                self.points.database.add_points(str(target.id), bet)
+                self.points.database.remove_points(str(ctx.author.id), bet)
+                await ctx.send(f"{target.mention} GAGNE! +{bet}")
             else:
+                # TIE
                 self.points.database.add_points(str(ctx.author.id), bet)
                 self.points.database.add_points(str(target.id), bet)
                 await ctx.send(f"EGALITE! Chacun garde son argent")
