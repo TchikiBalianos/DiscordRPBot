@@ -480,7 +480,7 @@ class Commands(commands.Cog):
             await ctx.send(narration)
             await asyncio.sleep(2)
 
-            from config import COMBAT_MOVES, COMBAT_FIRST_MOVE_TIMEOUT, COMBAT_REACTION_TIMEOUT
+            from config import EMOJI_POOL, COMBAT_FIRST_MOVE_TIMEOUT, COMBAT_REACTION_TIMEOUT
             
             # Initialize combat
             success, message, combat_info = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
@@ -488,16 +488,18 @@ class Commands(commands.Cog):
                 await ctx.send(message)
                 return
             
+            # Select 6 random emojis for this combat
+            selected_emojis = random.sample(EMOJI_POOL, 6)
+            emoji_display = " ".join([f"{i+1}️⃣ {emoji}" for i, emoji in enumerate(selected_emojis)])
+            
             # Step 1: Attacker chooses move
             attacker_msg = await ctx.send(
-                f"Choisissez votre coup {ctx.author.mention}:\n"
-                f"cross = Attaque rapide\n"
-                f"shield = Defense\n"
-                f"fist = Coup puissant\n"
-                f"1 minute pour choisir!"
+                f"{ctx.author.mention}, choisissez votre coup (1-6):\n"
+                f"{emoji_display}\n"
+                f"⏱️ 1 minute pour choisir!"
             )
-            for move in COMBAT_MOVES:
-                await attacker_msg.add_reaction(move)
+            for i in range(6):
+                await attacker_msg.add_reaction(f"{i+1}️⃣")
             
             # Wait for attacker reaction
             try:
@@ -505,26 +507,26 @@ class Commands(commands.Cog):
                     'reaction_add',
                     timeout=COMBAT_FIRST_MOVE_TIMEOUT,
                     check=lambda r, u: (u.id == ctx.author.id and 
-                                       str(r.emoji) in COMBAT_MOVES and 
+                                       str(r.emoji) in [f"{i+1}️⃣" for i in range(6)] and 
                                        r.message.id == attacker_msg.id)
                 )
-                attacker_move = str(attacker_reaction[0].emoji)
-                await ctx.send(f"OK! {ctx.author.mention} a choisi: {attacker_move}")
+                # Convert number emoji to index
+                attacker_idx = int(str(attacker_reaction[0].emoji)[0]) - 1
+                await ctx.send(f"✅ {ctx.author.mention} a choisi: {selected_emojis[attacker_idx]}")
             except asyncio.TimeoutError:
-                await ctx.send(f"TIMEOUT! {ctx.author.mention} - Combat annule!")
+                await ctx.send(f"⏱️ TIMEOUT! {ctx.author.mention} n'a pas choisi à temps. Combat annulé!")
                 return
             
             await asyncio.sleep(1)
             
-            # Step 2: Defender must react
+            # Step 2: Defender must react within 5 minutes
             defender_msg = await ctx.send(
-                f"You have 5 MINUTES to defend {target.mention}!\n"
-                f"cross = Attaque rapide\n"
-                f"shield = Defense\n"
-                f"fist = Coup puissant"
+                f"{target.mention}, défendez-vous dans les 5 MINUTES!\n"
+                f"{emoji_display}\n"
+                f"⏱️ 5 minutes pour réagir!"
             )
-            for move in COMBAT_MOVES:
-                await defender_msg.add_reaction(move)
+            for i in range(6):
+                await defender_msg.add_reaction(f"{i+1}️⃣")
             
             # Wait for defender reaction with 5 minute timeout
             try:
@@ -532,20 +534,22 @@ class Commands(commands.Cog):
                     'reaction_add',
                     timeout=COMBAT_REACTION_TIMEOUT,
                     check=lambda r, u: (u.id == target.id and 
-                                       str(r.emoji) in COMBAT_MOVES and 
+                                       str(r.emoji) in [f"{i+1}️⃣" for i in range(6)] and 
                                        r.message.id == defender_msg.id)
                 )
-                defender_move = str(defender_reaction[0].emoji)
-                await ctx.send(f"OK! {target.mention} a reagi: {defender_move}")
+                # Convert number emoji to index
+                defender_idx = int(str(defender_reaction[0].emoji)[0]) - 1
+                await ctx.send(f"✅ {target.mention} a riposté: {selected_emojis[defender_idx]}")
             except asyncio.TimeoutError:
                 # Defender loses
-                await ctx.send(f"TIMEOUT! {target.mention} n\'a pas reagi! {ctx.author.mention} gagne!")
+                await ctx.send(f"⏱️ TIMEOUT! {target.mention} n'a pas réagi à temps! 💀\n"
+                              f"{ctx.author.mention} remporte le combat et gagne **{bet}** points!")
                 self.points.database.remove_points(str(target.id), bet)
                 self.points.database.add_points(str(ctx.author.id), bet)
                 return
             
-            # Evaluate moves
-            result, move_description = await self.points.evaluate_combat_moves(attacker_move, defender_move)
+            # Evaluate moves with indices
+            result, move_description = await self.points.evaluate_combat_moves(attacker_idx, defender_idx, selected_emojis)
             
             await ctx.send(f"\n{move_description}")
             await asyncio.sleep(2)
@@ -588,7 +592,7 @@ class Commands(commands.Cog):
             if bet is None:
                 bet = 100
 
-            from config import COMBAT_MOVES, COMBAT_FIRST_MOVE_TIMEOUT, COMBAT_REACTION_TIMEOUT
+            from config import EMOJI_POOL, COMBAT_FIRST_MOVE_TIMEOUT, COMBAT_REACTION_TIMEOUT
             
             # Initialize combat
             success, message, combat_info = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
@@ -600,16 +604,18 @@ class Commands(commands.Cog):
             await ctx.send(f"⚔️ {ctx.author.mention} defie {target.mention} en combat singulier!")
             await asyncio.sleep(1)
             
+            # Select 6 random emojis for this combat
+            selected_emojis = random.sample(EMOJI_POOL, 6)
+            emoji_display = " ".join([f"{i+1}️⃣ {emoji}" for i, emoji in enumerate(selected_emojis)])
+            
             # Step 1: Attacker chooses move
             attacker_msg = await ctx.send(
-                f"Choisissez votre coup {ctx.author.mention}:\n"
-                f"cross = Attaque rapide\n"
-                f"shield = Defense\n"
-                f"fist = Coup puissant\n"
-                f"1 minute pour choisir!"
+                f"{ctx.author.mention}, choisissez votre coup (1-6):\n"
+                f"{emoji_display}\n"
+                f"⏱️ 1 minute pour choisir!"
             )
-            for move in COMBAT_MOVES:
-                await attacker_msg.add_reaction(move)
+            for i in range(6):
+                await attacker_msg.add_reaction(f"{i+1}️⃣")
             
             # Wait for attacker reaction
             try:
@@ -617,26 +623,26 @@ class Commands(commands.Cog):
                     'reaction_add',
                     timeout=COMBAT_FIRST_MOVE_TIMEOUT,
                     check=lambda r, u: (u.id == ctx.author.id and 
-                                       str(r.emoji) in COMBAT_MOVES and 
+                                       str(r.emoji) in [f"{i+1}️⃣" for i in range(6)] and 
                                        r.message.id == attacker_msg.id)
                 )
-                attacker_move = str(attacker_reaction[0].emoji)
-                await ctx.send(f"OK! {ctx.author.mention} a choisi: {attacker_move}")
+                # Convert number emoji to index
+                attacker_idx = int(str(attacker_reaction[0].emoji)[0]) - 1
+                await ctx.send(f"✅ {ctx.author.mention} a choisi: {selected_emojis[attacker_idx]}")
             except asyncio.TimeoutError:
-                await ctx.send(f"TIMEOUT! {ctx.author.mention} - Combat annule!")
+                await ctx.send(f"⏱️ TIMEOUT! {ctx.author.mention} n'a pas choisi à temps. Combat annulé!")
                 return
             
             await asyncio.sleep(1)
             
-            # Step 2: Defender must react
+            # Step 2: Defender must react within 5 minutes
             defender_msg = await ctx.send(
-                f"You have 5 MINUTES to defend {target.mention}!\n"
-                f"cross = Attaque rapide\n"
-                f"shield = Defense\n"
-                f"fist = Coup puissant"
+                f"{target.mention}, défendez-vous dans les 5 MINUTES!\n"
+                f"{emoji_display}\n"
+                f"⏱️ 5 minutes pour réagir!"
             )
-            for move in COMBAT_MOVES:
-                await defender_msg.add_reaction(move)
+            for i in range(6):
+                await defender_msg.add_reaction(f"{i+1}️⃣")
             
             # Wait for defender reaction with 5 minute timeout
             try:
@@ -644,20 +650,22 @@ class Commands(commands.Cog):
                     'reaction_add',
                     timeout=COMBAT_REACTION_TIMEOUT,
                     check=lambda r, u: (u.id == target.id and 
-                                       str(r.emoji) in COMBAT_MOVES and 
+                                       str(r.emoji) in [f"{i+1}️⃣" for i in range(6)] and 
                                        r.message.id == defender_msg.id)
                 )
-                defender_move = str(defender_reaction[0].emoji)
-                await ctx.send(f"OK! {target.mention} a reagi: {defender_move}")
+                # Convert number emoji to index
+                defender_idx = int(str(defender_reaction[0].emoji)[0]) - 1
+                await ctx.send(f"✅ {target.mention} a riposté: {selected_emojis[defender_idx]}")
             except asyncio.TimeoutError:
                 # Defender loses
-                await ctx.send(f"TIMEOUT! {target.mention} n\'a pas reagi! {ctx.author.mention} gagne!")
+                await ctx.send(f"⏱️ TIMEOUT! {target.mention} n'a pas réagi à temps! 💀\n"
+                              f"{ctx.author.mention} remporte le combat et gagne **{bet}** points!")
                 self.points.database.remove_points(str(target.id), bet)
                 self.points.database.add_points(str(ctx.author.id), bet)
                 return
             
-            # Evaluate moves
-            result, move_description = await self.points.evaluate_combat_moves(attacker_move, defender_move)
+            # Evaluate moves with indices
+            result, move_description = await self.points.evaluate_combat_moves(attacker_idx, defender_idx, selected_emojis)
             
             await ctx.send(f"\n{move_description}")
             await asyncio.sleep(2)
@@ -704,11 +712,9 @@ class Commands(commands.Cog):
             await ctx.send("*Les duels sont des combats prestigieux avec des enjeux élevés...*")
             await asyncio.sleep(2)
 
-            success, message = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
+            success, message, combat_info = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
             if success:
-                combat_msg = await ctx.send(message)
-                for move in COMBAT_MOVES:
-                    await combat_msg.add_reaction(move)
+                await ctx.send("✅ Duel accepté! Le combat commencera bientôt...")
             else:
                 await ctx.send(message)
 
@@ -1759,17 +1765,8 @@ class Commands(commands.Cog):
         message = reaction.message
         emoji = str(reaction.emoji)
 
-        # Handle combat moves
-        if message.content.startswith("⚔️ Combat"):
-            if emoji in COMBAT_MOVES:
-                success, result = await self.points.process_combat_move(
-                    str(message.id), str(user.id), emoji
-                )
-                if success:
-                    await message.channel.send(result)
-
         # Handle tribunal votes
-        elif message.content.startswith("⚖️"):
+        if message.content.startswith("⚖️"):
             if emoji in ["✅", "❌"]:
                 vote = emoji == "✅"
                 try:

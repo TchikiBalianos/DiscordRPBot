@@ -322,18 +322,35 @@ class PointSystem:
             logger.error(f"Error in join_heist: {e}", exc_info=True)
             return False, "❌ Impossible de rejoindre le braquage."
     
-    async def evaluate_combat_moves(self, attacker_move: str, defender_move: str) -> Tuple[str, str]:
-        """Evaluate two combat moves and return winner and message"""
-        from config import COMBAT_MOVE_RESULTS, COMBAT_MOVE_NAMES
+    async def evaluate_combat_moves(self, attacker_idx: int, defender_idx: int, selected_emojis: list) -> Tuple[str, str]:
+        """
+        Evaluate combat moves based on emoji indices
+        Args:
+            attacker_idx: Index (0-5) of attacker's emoji in selected_emojis
+            defender_idx: Index (0-5) of defender's emoji in selected_emojis
+            selected_emojis: List of 6 selected emojis for this combat
+        Returns:
+            (result, message) where result is 'win' (attacker), 'lose' (defender), or 'tie'
+        """
+        import random
+        from config import COMBAT_MATRIX
         
-        key = (attacker_move, defender_move)
-        if key in COMBAT_MOVE_RESULTS:
-            result, message = COMBAT_MOVE_RESULTS[key]
-            attacker_move_name = COMBAT_MOVE_NAMES.get(attacker_move, 'Coup inconnu')
-            defender_move_name = COMBAT_MOVE_NAMES.get(defender_move, 'Coup inconnu')
-            full_message = f"{attacker_move} **{attacker_move_name}** vs {defender_move} **{defender_move_name}**\n\n{message}"
+        # Clé: (attacker_idx, defender_idx)
+        key = (attacker_idx, defender_idx)
+        
+        if key in COMBAT_MATRIX:
+            result, messages_list = COMBAT_MATRIX[key]
+            message = random.choice(messages_list)
+            
+            # Ajouter les emojis choisis
+            attacker_emoji = selected_emojis[attacker_idx]
+            defender_emoji = selected_emojis[defender_idx]
+            
+            full_message = f"{attacker_emoji} vs {defender_emoji}\n\n{message}"
             return result, full_message
-        return 'tie', f"Coups indefinis: {attacker_move} vs {defender_move}"
+        
+        # Fallback si clé non trouvée
+        return 'tie', f"Emojis: {selected_emojis[attacker_idx]} vs {selected_emojis[defender_idx]}\n\nCombat indécis!"
     
     async def start_combat(self, challenger_id: str, target_id: str, bet: int) -> Tuple[bool, str, dict]:
         """Prepare a combat - returns info for interactive combat

@@ -469,35 +469,116 @@ RESTRICTED_COMMANDS_ON_UNTRUSTED_SERVERS = {
     "removeitem": True,     # Commande critiques
 }
 
-# === Combat Moves ===
-# Emojis utilisés pour les réactions de combat
-COMBAT_MOVES = ['⚔️', '🛡️', '🤜']  # Attaque, Défense, Puissant
-COMBAT_MOVE_NAMES = {
-    '⚔️': 'Attaque rapide',
-    '🛡️': 'Défense',
-    '🤜': 'Coup puissant'
+# === Combat Emoji Pool ===
+# Pool large d'emojis pour éviter les patterns devinables
+# 6 emojis aléatoires seront sélectionnés pour chaque combat
+EMOJI_POOL = [
+    '⚔️', '🛡️', '🤜', '🗡️', '🔱', '⚡', '🔥', '❄️', '💥', '🌊',
+    '🐉', '🦅', '🦁', '🐯', '🔪', '🎯', '💫', '⭐', '🌟', '✨',
+    '👊', '🤲', '🙌', '👋', '💪', '🦾', '🧿', '🎪', '🎭', '🎨',
+    '🚀', '💣', '🧨', '⚙️', '🔧', '📡', '🎲', '🎰', '🃏', '🎴'
+]
+
+# === Combat Results Matrix ===
+# Matrice 6x6 pour résoudre les combats équilibrés
+# Clé: (attacker_emoji_index, defender_emoji_index) [0-5]
+# Valeur: (result, message)
+# result = 'win' (attaquant gagne), 'lose' (attaquant perd/défenseur gagne), 'tie' (égalité)
+# 
+# Équilibre: Pour chaque emoji du défenseur:
+# - 3 résultats 'lose' (défenseur gagne)
+# - 1 résultat 'tie' (égalité)
+# - 2 résultats 'win' (attaquant gagne)
+# Total défenseur sûr: 4/6 (66%)
+
+COMBAT_NARRATIONS = {
+    # (result, context) -> list of messages
+    ('win', 'attacker'): [
+        'Votre coup puissant transperce la défense!',
+        'L\'attaque est dévastatrice! Le défenseur vacille!',
+        'Coup critique! Une victoire éclatante!',
+        'Votre offensive écrase la défense adverse!',
+        'Un coup magistral qui laisse l\'adversaire sans voix!',
+        'La puissance de votre attaque est irrésistible!',
+        'Vous avez écrasé votre adversaire!',
+        'Une victoire méritée après cette attaque féroce!'
+    ],
+    ('lose', 'attacker'): [
+        'La défense stoppe net votre attaque!',
+        'Votre coup ne passe pas la garde!',
+        'L\'adversaire dévie votre attaque avec maestria!',
+        'Une contre-attaque dévastatrice vous repousse!',
+        'Vous ne pouviez rien faire face à cette défense!',
+        'L\'adversaire neutralise complètement votre tentative!',
+        'Vous êtes repoussé violemment!',
+        'Une défaite cinglante... L\'adversaire garde le contrôle!'
+    ],
+    ('tie', 'both'): [
+        'Les deux coups s\'annulent dans une explosion de puissance!',
+        'Impasse totale! Ni l\'un ni l\'autre ne peut l\'emporter!',
+        'Les deux forces se heurtent et s\'équilibrent parfaitement!',
+        'Stalemate! Les deux combattants sont au même niveau!',
+        'Un clash spectaculaire! Dégats mutuels équivalents!',
+        'Les deux attaques se neutralisent complètement!',
+    ]
+}
+
+COMBAT_MATRIX = {
+    # Défenseur choisit emoji index 0 (D=0)
+    (0, 0): ('tie', COMBAT_NARRATIONS[('tie', 'both')]),
+    (1, 0): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (2, 0): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (3, 0): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (4, 0): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (5, 0): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    
+    # Défenseur choisit emoji index 1 (D=1)
+    (0, 1): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (1, 1): ('tie', COMBAT_NARRATIONS[('tie', 'both')]),
+    (2, 1): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (3, 1): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (4, 1): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (5, 1): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    
+    # Défenseur choisit emoji index 2 (D=2)
+    (0, 2): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (1, 2): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (2, 2): ('tie', COMBAT_NARRATIONS[('tie', 'both')]),
+    (3, 2): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (4, 2): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),  # Changed from lose
+    (5, 2): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    
+    # Défenseur choisit emoji index 3 (D=3)
+    (0, 3): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (1, 3): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (2, 3): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (3, 3): ('tie', COMBAT_NARRATIONS[('tie', 'both')]),
+    (4, 3): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),  # Changed from lose
+    (5, 3): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    
+    # Défenseur choisit emoji index 4 (D=4)
+    (0, 4): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (1, 4): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (2, 4): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (3, 4): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (4, 4): ('tie', COMBAT_NARRATIONS[('tie', 'both')]),
+    (5, 4): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    
+    # Défenseur choisit emoji index 5 (D=5)
+    (0, 5): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (1, 5): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (2, 5): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (3, 5): ('lose', COMBAT_NARRATIONS[('lose', 'attacker')]),
+    (4, 5): ('win', COMBAT_NARRATIONS[('win', 'attacker')]),
+    (5, 5): ('tie', COMBAT_NARRATIONS[('tie', 'both')]),
 }
 
 # === Combat Configuration ===
-COMBAT_REACTION_TIMEOUT = 300  # 5 minutes en secondes
-COMBAT_FIRST_MOVE_TIMEOUT = 60  # 1 minute pour choisir son premier coup
+COMBAT_REACTION_TIMEOUT = 300  # 5 minutes pour le défenseur
+COMBAT_FIRST_MOVE_TIMEOUT = 60  # 1 minute pour l'attaquant
 COMBAT_ROUNDS = 1  # Nombre de rounds de combat
 COMBAT_MIN_BET = 50
 COMBAT_MAX_BET = 10000
-
-# Logique des coups (qui bat quoi):
-# Attaque < Défense < Puissance < Attaque
-COMBAT_MOVE_RESULTS = {
-    ('⚔️', '⚔️'): ('tie', 'Les deux attaques se heurtent de plein fouet!'),
-    ('⚔️', '🛡️'): ('lose', 'La défense stoppe net l\'attaque!'),
-    ('⚔️', '🤜'): ('lose', 'Le coup puissant transperce l\'attaque!'),
-    ('🛡️', '⚔️'): ('win', 'Votre défense neutralise l\'attaque!'),
-    ('🛡️', '🛡️'): ('tie', 'Les deux se défendent! Impasse totale...'),
-    ('🛡️', '🤜'): ('lose', 'Le coup puissant brise la défense!'),
-    ('🤜', '⚔️'): ('win', 'Votre coup puissant crève la défense!'),
-    ('🤜', '🛡️'): ('win', 'Même la défense échoue contre cette puissance!'),
-    ('🤜', '🤜'): ('tie', 'Les deux coups puissants s\'annulent!'),
-}
 
 # === Heist Configuration ===
 # Paramètres pour les braquages collectifs
