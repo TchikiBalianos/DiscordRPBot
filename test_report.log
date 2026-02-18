@@ -1,0 +1,60 @@
+2026-02-08 22:40:20,996 - INFO - [OK] Supabase client initialized successfully (attempt 1)
+2026-02-08 22:40:22,661 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=user_id&limit=1 "HTTP/2 200 OK"
+2026-02-08 22:40:22,879 - INFO - [OK] Supabase connection test successful - Database is reachable
+2026-02-08 22:40:22,880 - INFO - [CONFIG] Database resilience configured: retries=3, timeout=10.0s
+2026-02-08 22:40:22,880 - INFO - ================================================================================
+2026-02-08 22:40:22,880 - INFO - STARTING AUTOMATED COMMAND TESTS
+2026-02-08 22:40:22,880 - INFO - Test user ID: 999999999999999999
+2026-02-08 22:40:22,880 - INFO - ================================================================================
+2026-02-08 22:40:22,881 - INFO - 
+>>> Running: Database Connection
+2026-02-08 22:40:22,881 - INFO - TEST: Database connection
+2026-02-08 22:40:22,892 - INFO - 
+>>> Running: User Creation
+2026-02-08 22:40:22,892 - INFO - TEST: User creation
+2026-02-08 22:40:23,245 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=%2A&user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:23,498 - INFO - 
+>>> Running: Add Points
+2026-02-08 22:40:23,498 - INFO - TEST: Add points
+2026-02-08 22:40:23,835 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=points&user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:24,387 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=points&user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:24,964 - INFO - HTTP Request: PATCH https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:25,560 - INFO - HTTP Request: POST https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/point_transactions "HTTP/2 404 Not Found"
+2026-02-08 22:40:25,829 - ERROR - Error adding points: {'code': 'PGRST205', 'details': None, 'hint': "Perhaps you meant the table 'public.voice_sessions'", 'message': "Could not find the table 'public.point_transactions' in the schema cache"}
+2026-02-08 22:40:26,169 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=points&user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:26,387 - INFO - 
+>>> Running: Points Command
+2026-02-08 22:40:26,387 - INFO - TEST: !points command
+2026-02-08 22:40:26,710 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=points&user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:26,920 - INFO - 
+>>> Running: Leaderboard Command
+2026-02-08 22:40:26,920 - INFO - TEST: !leaderboard command
+2026-02-08 22:40:27,467 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=%2A&order=points.desc&limit=100 "HTTP/2 200 OK"
+2026-02-08 22:40:27,471 - INFO - 
+>>> Running: Prison Status Command
+2026-02-08 22:40:27,471 - INFO - TEST: !prison command
+2026-02-08 22:40:27,970 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=%2A&user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:27,973 - INFO - 
+>>> Running: Work Command
+2026-02-08 22:40:27,973 - INFO - TEST: !work command
+2026-02-08 22:40:28,297 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/user_data?select=last_work&user_id=eq.999999999999999999 "HTTP/2 404 Not Found"
+2026-02-08 22:40:28,526 - WARNING - Error getting last work: {'code': 'PGRST205', 'details': None, 'hint': "Perhaps you meant the table 'public.users'", 'message': "Could not find the table 'public.user_data' in the schema cache"}
+2026-02-08 22:40:28,846 - INFO - HTTP Request: GET https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?select=points&user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:29,253 - INFO - HTTP Request: PATCH https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/users?user_id=eq.999999999999999999 "HTTP/2 200 OK"
+2026-02-08 22:40:29,580 - INFO - HTTP Request: PATCH https://jfiffenfnikhoyvnwvfc.supabase.co/rest/v1/user_data?user_id=eq.999999999999999999 "HTTP/2 404 Not Found"
+2026-02-08 22:40:29,788 - WARNING - Error setting last work: {'code': 'PGRST205', 'details': None, 'hint': "Perhaps you meant the table 'public.users'", 'message': "Could not find the table 'public.user_data' in the schema cache"}
+2026-02-08 22:40:29,796 - INFO - 
+================================================================================
+2026-02-08 22:40:29,796 - INFO - TEST REPORT
+2026-02-08 22:40:29,797 - INFO - ================================================================================
+2026-02-08 22:40:29,797 - INFO - 
+[PASSED] 7/7 tests
+2026-02-08 22:40:29,797 - INFO -   [OK] Database Connection: Connected to Supabase
+2026-02-08 22:40:29,797 - INFO -   [OK] User Creation: User created/found: 999999999999999999
+2026-02-08 22:40:29,797 - INFO -   [OK] Add Points: Points added: 285 -> 385
+2026-02-08 22:40:29,797 - INFO -   [OK] Points Command: Points: 385
+2026-02-08 22:40:29,797 - INFO -   [OK] Leaderboard Command: Leaderboard has 7 entries
+2026-02-08 22:40:29,797 - INFO -   [OK] Prison Status Command: Prison status: {'is_imprisoned': False, 'prison_time_remaining': 0, 'reason': 'N/A'}
+2026-02-08 22:40:29,800 - INFO - 
+Report saved to test_report.json
+2026-02-08 22:40:29,800 - INFO - ================================================================================
