@@ -16,11 +16,17 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# Si les credentials ne sont pas définis, les ajouter pour les tests
-if not os.getenv('SUPABASE_URL'):
-    os.environ['SUPABASE_URL'] = 'https://jfiffenfnikhoyvnwvfc.supabase.co'
-if not os.getenv('SUPABASE_ANON_KEY'):
-    os.environ['SUPABASE_ANON_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpmZWZlbmZuaWtob3l2bndsZmMiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTcwODcyMTkwMCwiZXhwIjoxNzI0Mjc3OTAwfQ.sWnBcqHIz8hRUjMzUSTjSz8MHxzWGxpFHhFwBmrfJp4'
+# Vérifier que les credentials sont présents
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
+
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    logger.warning("⚠️  Supabase credentials not found in environment variables")
+    logger.warning("    Set SUPABASE_URL and SUPABASE_ANON_KEY in .env file")
+    logger.warning("    Tests that require database will be skipped")
+    SUPABASE_CONFIGURED = False
+else:
+    SUPABASE_CONFIGURED = True
 
 # Patches requis AVANT les imports nextcord
 import audioop_patch
