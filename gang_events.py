@@ -32,6 +32,13 @@ class GangEvents:
         self.territory_system = territory_system
         self.running = False
         self.event_tasks = []
+        # Volatile in-memory state for temporary game events (reset on restart by design)
+        self._volatile: dict = {
+            "active_treasures": {},
+            "territory_effects": {},
+            "black_markets": {},
+            "temporary_alliances": {},
+        }
         
         # Configuration des événements
         self.event_config = {
@@ -322,7 +329,7 @@ class GangEvents:
         
         # Le premier gang à réagir obtient le trésor
         treasure_id = f"treasure_{datetime.now().timestamp()}"
-        self.db.data.setdefault("active_treasures", {})[treasure_id] = {
+        self._volatile["active_treasures"][treasure_id] = {
             "value": treasure_value,
             "location": treasure_location,
             "created_at": datetime.now().isoformat(),
@@ -390,7 +397,7 @@ class GangEvents:
         
         # Programmer la restauration dans 6 heures
         restore_time = datetime.now() + timedelta(hours=6)
-        self.db.data.setdefault("territory_effects", {})[territory_id] = {
+        self._volatile["territory_effects"][territory_id] = {
             "type": "revolt",
             "original_income": original_income,
             "restore_at": restore_time.isoformat()
@@ -409,7 +416,7 @@ class GangEvents:
         ]
         
         market_id = f"market_{datetime.now().timestamp()}"
-        self.db.data.setdefault("black_markets", {})[market_id] = {
+        self._volatile["black_markets"][market_id] = {
             "items": market_items,
             "created_at": datetime.now().isoformat(),
             "expires_at": (datetime.now() + timedelta(hours=2)).isoformat(),
@@ -447,7 +454,7 @@ class GangEvents:
             }
         }
         
-        self.db.data.setdefault("temporary_alliances", {})[alliance_id] = alliance_data
+        self._volatile["temporary_alliances"][alliance_id] = alliance_data
         
         gang1_info = self.gang_system.get_gang_info(gang1)
         gang2_info = self.gang_system.get_gang_info(gang2)

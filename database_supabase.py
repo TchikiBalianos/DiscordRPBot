@@ -115,13 +115,7 @@ class SupabaseDatabase:
             if not self.supabase:
                 return False
             
-            # Test avec une requête simple et timeout
-            import signal
-            
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Database connection timeout")
-            
-            # Pour Windows, on utilise threading au lieu de signal
+            # Pour Windows et compatibilité cross-platform, on utilise threading
             import threading
             result = [False]
             exception = [None]
@@ -264,24 +258,6 @@ class SupabaseDatabase:
     
     def get_user_data(self, user_id: str) -> Dict:
         """Get user data with fallback and retry logic"""
-        def _get_user_operation():
-            if not self.supabase:
-                raise Exception("Database not connected")
-            
-            result = self.supabase.table('users').select('*').eq('user_id', user_id).execute()
-            
-            if result.data:
-                return result.data[0]
-            else:
-                # Create new user
-                new_user = {
-                    'user_id': user_id,
-                    'points': 0
-                }
-                self.supabase.table('users').insert(new_user).execute()
-                logger.info(f"Created new user: {user_id}")
-                return new_user
-        
         try:
             # Essayer d'obtenir l'utilisateur directement (Supabase est synchrone)
             result = self.supabase.table('users').select('*').eq('user_id', user_id).execute()
@@ -768,6 +744,240 @@ class SupabaseDatabase:
             logger.error(f"Error getting gang info: {e}", exc_info=True)
             return None
     
+    def create_gang_invitation(self, target_id: str, gang_id: str, inviter_id: str) -> bool:
+        """Store a gang invitation (expires after 24h)"""
+        try:
+            if not self.is_connected():
+                return False
+            from datetime import datetime, timedelta
+            expires_at = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+            self.supabase.table('gang_invitations').upsert({
+                'user_id': target_id,
+                'gang_id': gang_id,
+                'inviter_id': inviter_id,
+                'expires_at': expires_at
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error creating gang invitation: {e}", exc_info=True)
+            return False
+
+    def get_gang_invitation(self, user_id: str) -> Optional[Dict]:
+        """Get pending gang invitation for user (non-expired)"""
+        try:
+            if not self.is_connected():
+                return None
+            from datetime import datetime
+            now = datetime.utcnow().isoformat()
+            result = self.supabase.table('gang_invitations').select('*').eq('user_id', user_id).gt('expires_at', now).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Error getting gang invitation: {e}", exc_info=True)
+            return None
+
+    def delete_gang_invitation(self, user_id: str):
+        """Delete a gang invitation"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('gang_invitations').delete().eq('user_id', user_id).execute()
+        except Exception as e:
+            logger.error(f"Error deleting gang invitation: {e}", exc_info=True)
+
+    def add_gang_member(self, gang_id: str, user_id: str, rank: str = 'recrue') -> bool:
+        """Add a member to a gang"""
+        try:
+            if not self.is_connected():
+                return False
+            self.supabase.table('gang_members').insert({
+                'gang_id': gang_id,
+                'user_id': user_id,
+                'rank': rank
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding gang member: {e}", exc_info=True)
+            return False
+
+    def remove_gang_member(self, gang_id: str, user_id: str):
+        """Remove a member from a gang"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('gang_members').delete().eq('gang_id', gang_id).eq('user_id', user_id).execute()
+        except Exception as e:
+            logger.error(f"Error removing gang member: {e}", exc_info=True)
+
+    def update_gang_member_rank(self, gang_id: str, user_id: str, rank: str):
+        """Update a member's rank"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('gang_members').update({'rank': rank}).eq('gang_id', gang_id).eq('user_id', user_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating gang member rank: {e}", exc_info=True)
+
+    def transfer_gang_leadership(self, gang_id: str, old_boss_id: str, new_boss_id: str) -> bool:
+        """Transfer gang boss to another member"""
+        try:
+            if not self.is_connected():
+                return False
+            self.supabase.table('gangs').update({'boss_id': new_boss_id}).eq('id', gang_id).execute()
+            self.update_gang_member_rank(gang_id, old_boss_id, 'lieutenant')
+            self.update_gang_member_rank(gang_id, new_boss_id, 'boss')
+            return True
+        except Exception as e:
+            logger.error(f"Error transferring gang leadership: {e}", exc_info=True)
+            return False
+
+    def disband_gang(self, gang_id: str) -> bool:
+        """Disband a gang: delete members, free territories, delete gang row"""
+        try:
+            if not self.is_connected():
+                return False
+            self.supabase.table('gang_members').delete().eq('gang_id', gang_id).execute()
+            self.supabase.table('territories').update({'controlled_by': None, 'defense_points': 0}).eq('controlled_by', gang_id).execute()
+            self.supabase.table('gangs').delete().eq('id', gang_id).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error disbanding gang: {e}", exc_info=True)
+            return False
+
+    def update_gang_vault(self, gang_id: str, new_amount: int):
+        """Update gang vault_points"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('gangs').update({'vault_points': new_amount}).eq('id', gang_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating gang vault: {e}", exc_info=True)
+
+    def record_daily_contribution(self, user_id: str, amount: int):
+        """Record (upsert) today's contribution for vault limit tracking"""
+        try:
+            if not self.is_connected():
+                return
+            from datetime import date
+            today = date.today().isoformat()
+            result = self.supabase.table('gang_daily_contributions').select('amount').eq('user_id', user_id).eq('contribution_date', today).execute()
+            if result.data:
+                current = result.data[0]['amount']
+                self.supabase.table('gang_daily_contributions').update({'amount': current + amount}).eq('user_id', user_id).eq('contribution_date', today).execute()
+            else:
+                self.supabase.table('gang_daily_contributions').insert({
+                    'user_id': user_id,
+                    'contribution_date': today,
+                    'amount': amount
+                }).execute()
+        except Exception as e:
+            logger.error(f"Error recording daily contribution: {e}", exc_info=True)
+
+    def get_daily_contributions(self, user_id: str) -> int:
+        """Get today's total contributions by user"""
+        try:
+            if not self.is_connected():
+                return 0
+            from datetime import date
+            today = date.today().isoformat()
+            result = self.supabase.table('gang_daily_contributions').select('amount').eq('user_id', user_id).eq('contribution_date', today).execute()
+            return result.data[0]['amount'] if result.data else 0
+        except Exception as e:
+            logger.error(f"Error getting daily contributions: {e}", exc_info=True)
+            return 0
+
+    def get_all_gangs(self) -> Dict[str, Dict]:
+        """Get all gangs as dict keyed by id"""
+        try:
+            if not self.is_connected():
+                return {}
+            result = self.supabase.table('gangs').select('*').execute()
+            return {g['id']: g for g in (result.data or [])}
+        except Exception as e:
+            logger.error(f"Error getting all gangs: {e}", exc_info=True)
+            return {}
+
+    def update_gang_stats(self, gang_id: str, **kwargs):
+        """Generic update of gang fields (reputation, territory_count, etc.)"""
+        try:
+            if not self.is_connected() or not kwargs:
+                return
+            self.supabase.table('gangs').update(kwargs).eq('id', gang_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating gang stats: {e}", exc_info=True)
+
+    # === GANG WARS ===
+
+    def create_war(self, war_data: Dict) -> bool:
+        """Create a new war record"""
+        try:
+            if not self.is_connected():
+                return False
+            self.supabase.table('gang_wars').insert(war_data).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error creating war: {e}", exc_info=True)
+            return False
+
+    def get_war(self, war_id: str) -> Optional[Dict]:
+        """Get a war by id"""
+        try:
+            if not self.is_connected():
+                return None
+            result = self.supabase.table('gang_wars').select('*').eq('war_id', war_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Error getting war: {e}", exc_info=True)
+            return None
+
+    def update_war(self, war_id: str, **kwargs) -> bool:
+        """Update war fields"""
+        try:
+            if not self.is_connected() or not kwargs:
+                return False
+            self.supabase.table('gang_wars').update(kwargs).eq('war_id', war_id).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating war: {e}", exc_info=True)
+            return False
+
+    def get_active_wars(self) -> List[Dict]:
+        """Get all wars that are DECLARED, PREPARATION or ACTIVE"""
+        try:
+            if not self.is_connected():
+                return []
+            result = self.supabase.table('gang_wars').select('*').in_('status', ['declared', 'preparation', 'active']).execute()
+            return result.data or []
+        except Exception as e:
+            logger.error(f"Error getting active wars: {e}", exc_info=True)
+            return []
+
+    def get_gang_war_history(self, gang_id: str) -> List[Dict]:
+        """Get war history involving a gang (attacker or defender)"""
+        try:
+            if not self.is_connected():
+                return []
+            attacker = self.supabase.table('gang_wars').select('*').eq('attacker_gang_id', gang_id).execute()
+            defender = self.supabase.table('gang_wars').select('*').eq('defender_gang_id', gang_id).execute()
+            all_wars = (attacker.data or []) + (defender.data or [])
+            return sorted(all_wars, key=lambda x: x.get('declared_at', ''), reverse=True)
+        except Exception as e:
+            logger.error(f"Error getting gang war history: {e}", exc_info=True)
+            return []
+
+    def gang_in_active_war(self, gang_id: str) -> bool:
+        """Return True if gang is involved in an ongoing war"""
+        try:
+            if not self.is_connected():
+                return False
+            active = self.get_active_wars()
+            for war in active:
+                if gang_id in (war.get('attacker_gang_id'), war.get('defender_gang_id')):
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Error checking gang in active war: {e}", exc_info=True)
+            return False
+
     # === TERRITORIES ===
     
     def get_all_territories(self) -> Dict:
@@ -788,8 +998,40 @@ class SupabaseDatabase:
             logger.error(f"Error getting territories: {e}", exc_info=True)
             return {}
     
+    def capture_territory(self, territory_id: str, new_gang_id: Optional[str], defense_points: int = 100):
+        """Set a territory's controlling gang and reset defense"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('territories').update({
+                'controlled_by': new_gang_id,
+                'defense_points': defense_points
+            }).eq('id', territory_id).execute()
+        except Exception as e:
+            logger.error(f"Error capturing territory: {e}", exc_info=True)
+
+    def update_territory_defense(self, territory_id: str, defense_points: int):
+        """Update defense_points for a territory"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('territories').update({'defense_points': defense_points}).eq('id', territory_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating territory defense: {e}", exc_info=True)
+
+    def get_territory(self, territory_id: str) -> Optional[Dict]:
+        """Get a single territory by id"""
+        try:
+            if not self.is_connected():
+                return None
+            result = self.supabase.table('territories').select('*').eq('id', territory_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Error getting territory: {e}", exc_info=True)
+            return None
+
     # === DAILY COMMANDS ===
-    
+
     def get_daily_commands(self, user_id: str, command_date: str = None) -> Dict:
         """Get daily commands for user"""
         try:

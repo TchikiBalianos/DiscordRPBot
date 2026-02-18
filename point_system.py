@@ -29,7 +29,7 @@ class PointSystem:
     def add_points(self, user_id: str, points: int, reason: str = ""):
         """Ajouter des points à un utilisateur"""
         try:
-            self.database.add_points(user_id, points)
+            self.database.add_points(user_id, points, reason=reason)
             if reason:
                 logger.info(f"Added {points} points to {user_id}: {reason}")
         except Exception as e:
@@ -219,7 +219,7 @@ class PointSystem:
             
             # Random work reward
             amount = random.randint(WORK_MIN_AMOUNT, WORK_MAX_AMOUNT)
-            self.database.add_points(user_id, amount)
+            self.database.add_points(user_id, amount, reason="Daily work")
             self.database.set_last_work(user_id, now)
             
             return True, f"Tu as gagné **{amount}** 💵 en travaillant dur! 💼"
@@ -281,7 +281,7 @@ class PointSystem:
             
             # Execute the robbery
             self.database.remove_points(victim_id, steal_amount)
-            self.database.add_points(robber_id, steal_amount)
+            self.database.add_points(robber_id, steal_amount, reason="Rob")
             
             return True, steal_amount
         except Exception as e:
@@ -307,7 +307,7 @@ class PointSystem:
             
             # Success - random reward
             reward = random.randint(HEIST_MIN_REWARD, HEIST_MAX_REWARD)
-            self.database.add_points(leader_id, reward)
+            self.database.add_points(leader_id, reward, reason="Heist reward")
             
             return True, f"✅ Le braquage réussit! Tu gagnes **{reward}** 💵!"
         except Exception as e:

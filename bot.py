@@ -1,6 +1,10 @@
 # PATCH AUDIOOP AVANT IMPORT NEXTCORD (Python 3.13 compatibility)
 import audioop_patch  # Doit être le PREMIER import
 
+# Charger les variables d'environnement EN PREMIER, avant tout import de config
+from dotenv import load_dotenv
+load_dotenv()
+
 import nextcord as discord
 from nextcord.ext import commands
 import logging
@@ -18,10 +22,6 @@ from database_supabase import SupabaseDatabase
 from point_system import PointSystem
 from twitter_handler import TwitterHandler
 from gang_events import setup_gang_events, shutdown_gang_events
-
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(

@@ -4,7 +4,13 @@ import logging
 from datetime import datetime
 import random
 import asyncio
-from config import *
+from config import (
+    OWNER_ID, APPROVED_STAFF_IDS, DAILY_LIMITS, COMMAND_COOLDOWNS,
+    COMMAND_NARRATIONS, EMOJI_POOL, COMBAT_FIRST_MOVE_TIMEOUT,
+    COMBAT_REACTION_TIMEOUT, JUSTICE_CONFIG, ADMIN_CONFIG,
+    SHOP_ITEMS, SHOP_ITEMS_NEW, PRISON_ACTIVITIES,
+    STAFF_EDITPOINTS_MAX_ADD, STAFF_EDITPOINTS_MAX_REMOVE,
+)
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
 
 logger = logging.getLogger('EngagementBot')
@@ -12,7 +18,6 @@ logger = logging.getLogger('EngagementBot')
 def is_bot_owner():
     """Check if the user is the bot owner (by Discord user ID)"""
     async def predicate(ctx):
-        from config import OWNER_ID, APPROVED_STAFF_IDS
         if ctx.author.id == OWNER_ID:
             return True
         if ctx.author.id in APPROVED_STAFF_IDS:
@@ -223,7 +228,6 @@ class Commands(commands.Cog):
             }
 
             # Add admin commands if user is bot owner
-            from config import OWNER_ID, APPROVED_STAFF_IDS
             if ctx.author.id == OWNER_ID or ctx.author.id in APPROVED_STAFF_IDS:
                 commands_list["⚡ Admin (Owner Only)"] = {
                     "!addpoints @user montant": "Ajouter des points à un membre",
@@ -420,7 +424,7 @@ class Commands(commands.Cog):
                         value=f"[MONEY] {points} points",
                         inline=False
                     )
-                except:
+                except Exception:
                     continue
 
             embed.set_footer(text=f"Classement pour {datetime.now().strftime('%B %Y')}")
@@ -480,8 +484,6 @@ class Commands(commands.Cog):
             await ctx.send(narration)
             await asyncio.sleep(2)
 
-            from config import EMOJI_POOL, COMBAT_FIRST_MOVE_TIMEOUT, COMBAT_REACTION_TIMEOUT
-            
             # Initialize combat
             success, message, combat_info = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
             if not success:
@@ -594,8 +596,6 @@ class Commands(commands.Cog):
             if bet is None:
                 bet = 100
 
-            from config import EMOJI_POOL, COMBAT_FIRST_MOVE_TIMEOUT, COMBAT_REACTION_TIMEOUT
-            
             # Initialize combat
             success, message, combat_info = await self.points.start_combat(str(ctx.author.id), str(target.id), bet)
             if not success:
