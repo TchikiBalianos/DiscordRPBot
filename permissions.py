@@ -190,30 +190,35 @@ def rate_limit_admin_action(max_per_day=10):
         
         @wraps(func)
         async def wrapper(self, ctx, *args, **kwargs):
-            from datetime import datetime, timedelta
-            
-            user_id = ctx.author.id
+            from datetime import datetime, date
+
+            user_id = str(ctx.author.id)
             action_name = func.__name__
-            key = f"{user_id}_{action_name}"
-            
-            now = datetime.now()
-            cache = decorator._action_cache.get(key, [])
-            
-            # Nettoyer les entrées > 24h
-            cache = [(ts, cnt) for ts, cnt in cache if (now - ts).days < 1]
-            
-            # Vérifier la limite
-            if cache:
-                total_count = sum(cnt for _, cnt in cache)
-                if total_count >= max_per_day:
+
+            # Priorité au rate-limiting persistant via la DB (survit aux redémarrages)
+            db = getattr(getattr(self, 'points', None), 'database', None)
+            if db and hasattr(db, 'get_daily_commands') and hasattr(db, 'increment_daily_command'):
+                today = date.today().isoformat()
+                cmd_key = f"admin_{action_name}"
+                commands = db.get_daily_commands(user_id, today) or {}
+                if commands.get(cmd_key, 0) >= max_per_day:
                     await ctx.send(f"❌ Limite quotidienne atteinte pour cette action ({max_per_day}/jour)")
-                    logger.warning(f"Rate limit hit for {user_id} on {action_name}")
+                    logger.warning(f"Rate limit hit (DB) for {user_id} on {action_name}")
                     return
-            
-            # Enregistrer cette action
-            cache.append((now, 1))
-            decorator._action_cache[key] = cache
-            
+                db.increment_daily_command(user_id, cmd_key, today)
+            else:
+                # Fallback : cache en mémoire (réinitialisé au redémarrage)
+                now = datetime.now()
+                key = f"{user_id}_{action_name}"
+                cache = decorator._action_cache.get(key, [])
+                cache = [(ts, cnt) for ts, cnt in cache if (now - ts).days < 1]
+                if sum(cnt for _, cnt in cache) >= max_per_day:
+                    await ctx.send(f"❌ Limite quotidienne atteinte pour cette action ({max_per_day}/jour)")
+                    logger.warning(f"Rate limit hit (memory) for {user_id} on {action_name}")
+                    return
+                cache.append((now, 1))
+                decorator._action_cache[key] = cache
+
             return await func(self, ctx, *args, **kwargs)
         
         return wrapper

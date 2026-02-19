@@ -1,7 +1,13 @@
 import os
 
 # Configuration Twitter
-TWITTER_CONFIGURED = True  # ou False si Twitter n'est pas configuré
+TWITTER_CONFIGURED = bool(
+    os.getenv('TWITTER_API_KEY') and
+    os.getenv('TWITTER_API_SECRET') and
+    os.getenv('TWITTER_ACCESS_TOKEN') and
+    os.getenv('TWITTER_ACCESS_SECRET') and
+    os.getenv('TWITTER_BEARER_TOKEN')
+)
 
 # Twitter API Configuration (get from environment variables)
 TWITTER_API_KEY = os.getenv('TWITTER_API_KEY', '')

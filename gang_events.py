@@ -111,7 +111,36 @@ class GangEvents:
                 "weight": 15
             }
         ]
-    
+        # Restaurer l'état volatile depuis la session précédente
+        self._load_volatile()
+
+    def _load_volatile(self):
+        """Restaure l'état volatile depuis la DB, en ignorant les entrées expirées"""
+        saved = self.db.load_bot_state('gang_event_volatile')
+        if not saved:
+            return
+        now = datetime.now()
+        for category, entries in saved.items():
+            if category not in self._volatile:
+                continue
+            for eid, edata in entries.items():
+                expires_key = next((k for k in ('expires_at', 'restore_at') if k in edata), None)
+                if expires_key:
+                    try:
+                        if datetime.fromisoformat(edata[expires_key]) < now:
+                            continue
+                    except (ValueError, KeyError):
+                        pass
+                self._volatile[category][eid] = edata
+        logger.info("[GangEvents] État volatile restauré depuis la DB")
+
+    def _persist_volatile(self):
+        """Sauvegarde l'état volatile courant en DB"""
+        try:
+            self.db.save_bot_state('gang_event_volatile', self._volatile)
+        except Exception as e:
+            logger.warning(f"[GangEvents] Échec de la persistance volatile : {e}")
+
     async def start_events(self):
         """Démarrer tous les événements automatiques"""
         if self.running:
@@ -335,6 +364,7 @@ class GangEvents:
             "created_at": datetime.now().isoformat(),
             "claimed": False
         }
+        self._persist_volatile()
         
         await self._send_global_notification(
             "💰 Trésor Découvert",
@@ -402,6 +432,7 @@ class GangEvents:
             "original_income": original_income,
             "restore_at": restore_time.isoformat()
         }
+        self._persist_volatile()
         
         await self._notify_gang_territory_revolt(controlling_gang, territory_data['name'])
     
@@ -422,6 +453,7 @@ class GangEvents:
             "expires_at": (datetime.now() + timedelta(hours=2)).isoformat(),
             "purchases": {}
         }
+        self._persist_volatile()
         
         items_text = "\n".join([f"{item['name']} - {item['price']:,} points" for item in market_items])
         
@@ -455,6 +487,7 @@ class GangEvents:
         }
         
         self._volatile["temporary_alliances"][alliance_id] = alliance_data
+        self._persist_volatile()
         
         gang1_info = self.gang_system.get_gang_info(gang1)
         gang2_info = self.gang_system.get_gang_info(gang2)

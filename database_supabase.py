@@ -39,6 +39,9 @@ class SupabaseDatabase:
         self.last_connection_attempt = None
         self.connection_failures = 0
         self.is_reconnecting = False
+        # In-memory TTL cache to reduce repeated Supabase round-trips
+        self._cache: Dict[str, Any] = {}
+        self._cache_expiry: Dict[str, float] = {}
         self._initialize_client()
         
         logger.info(f"[CONFIG] Database resilience configured: retries={self.max_retries}, timeout={self.connection_timeout}s")
@@ -242,7 +245,28 @@ class SupabaseDatabase:
             return self._test_connection()
         
         return True
-    
+
+    # === CACHE HELPERS ===
+
+    def _cache_get(self, key: str) -> Any:
+        """Return cached value if still valid, else None."""
+        if time.time() < self._cache_expiry.get(key, 0):
+            return self._cache.get(key)
+        self._cache.pop(key, None)
+        self._cache_expiry.pop(key, None)
+        return None
+
+    def _cache_set(self, key: str, value: Any, ttl: int = 30):
+        """Store value in cache with TTL in seconds."""
+        self._cache[key] = value
+        self._cache_expiry[key] = time.time() + ttl
+
+    def _cache_invalidate(self, *keys: str):
+        """Remove one or more keys from the cache."""
+        for k in keys:
+            self._cache.pop(k, None)
+            self._cache_expiry.pop(k, None)
+
     def get_connection_status(self) -> Dict[str, Any]:
         """Obtenir le statut détaillé de la connexion"""
         return {
@@ -279,6 +303,10 @@ class SupabaseDatabase:
 
     def get_user_points(self, user_id: str) -> int:
         """Get user points with resilience"""
+        cache_key = f"points:{user_id}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         try:
             if not self.supabase:
                 raise Exception("Database not connected")
@@ -286,13 +314,16 @@ class SupabaseDatabase:
             result = self.supabase.table('users').select('points').eq('user_id', user_id).execute()
             
             if result.data:
-                return result.data[0]['points']
+                points = result.data[0]['points']
+                self._cache_set(cache_key, points, ttl=15)
+                return points
             else:
                 # Créer un nouvel utilisateur
                 self.supabase.table('users').insert({
                     'user_id': user_id,
                     'points': 0
                 }).execute()
+                self._cache_set(cache_key, 0, ttl=15)
                 return 0
         except Exception as e:
             logger.error(f"Failed to get user points: {e}")
@@ -303,7 +334,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return False
-            
+            self._cache_invalidate(f"points:{user_id}")
             # Vérifier si l'utilisateur existe
             user_result = self.supabase.table('users').select('points').eq('user_id', user_id).execute()
             
@@ -352,7 +383,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return False
-            
+            self._cache_invalidate(f"points:{user_id}")
             current_user = self.get_user_data(user_id)
             
             if current_user['points'] < points:
@@ -701,19 +732,27 @@ class SupabaseDatabase:
     
     def get_user_gang(self, user_id: str) -> Optional[str]:
         """Get user's gang ID"""
+        cache_key = f"user_gang:{user_id}"
+        # Use direct dict check: None is a valid cached value (user has no gang)
+        if cache_key in self._cache and time.time() < self._cache_expiry.get(cache_key, 0):
+            return self._cache[cache_key]
         try:
             if not self.is_connected():
                 return None
-            
             result = self.supabase.table('gang_members').select('gang_id').eq('user_id', user_id).execute()
-            return result.data[0]['gang_id'] if result.data else None
-            
+            gang_id = result.data[0]['gang_id'] if result.data else None
+            self._cache_set(cache_key, gang_id, ttl=60)
+            return gang_id
         except Exception as e:
             logger.error(f"Error getting user gang: {e}", exc_info=True)
             return None
     
     def get_gang_info(self, gang_id: str) -> Optional[Dict]:
         """Get gang info with members"""
+        cache_key = f"gang:{gang_id}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         try:
             if not self.is_connected():
                 return None
@@ -738,6 +777,7 @@ class SupabaseDatabase:
                 }
             
             gang['members'] = members
+            self._cache_set(cache_key, gang, ttl=30)
             return gang
             
         except Exception as e:
@@ -789,6 +829,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return False
+            self._cache_invalidate(f"gang:{gang_id}", f"user_gang:{user_id}")
             self.supabase.table('gang_members').insert({
                 'gang_id': gang_id,
                 'user_id': user_id,
@@ -804,6 +845,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return
+            self._cache_invalidate(f"gang:{gang_id}", f"user_gang:{user_id}")
             self.supabase.table('gang_members').delete().eq('gang_id', gang_id).eq('user_id', user_id).execute()
         except Exception as e:
             logger.error(f"Error removing gang member: {e}", exc_info=True)
@@ -813,6 +855,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return
+            self._cache_invalidate(f"gang:{gang_id}")
             self.supabase.table('gang_members').update({'rank': rank}).eq('gang_id', gang_id).eq('user_id', user_id).execute()
         except Exception as e:
             logger.error(f"Error updating gang member rank: {e}", exc_info=True)
@@ -822,6 +865,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return False
+            self._cache_invalidate(f"gang:{gang_id}")
             self.supabase.table('gangs').update({'boss_id': new_boss_id}).eq('id', gang_id).execute()
             self.update_gang_member_rank(gang_id, old_boss_id, 'lieutenant')
             self.update_gang_member_rank(gang_id, new_boss_id, 'boss')
@@ -835,6 +879,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return False
+            self._cache_invalidate(f"gang:{gang_id}", "territories")
             self.supabase.table('gang_members').delete().eq('gang_id', gang_id).execute()
             self.supabase.table('territories').update({'controlled_by': None, 'defense_points': 0}).eq('controlled_by', gang_id).execute()
             self.supabase.table('gangs').delete().eq('id', gang_id).execute()
@@ -848,6 +893,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return
+            self._cache_invalidate(f"gang:{gang_id}")
             self.supabase.table('gangs').update({'vault_points': new_amount}).eq('id', gang_id).execute()
         except Exception as e:
             logger.error(f"Error updating gang vault: {e}", exc_info=True)
@@ -901,6 +947,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected() or not kwargs:
                 return
+            self._cache_invalidate(f"gang:{gang_id}")
             self.supabase.table('gangs').update(kwargs).eq('id', gang_id).execute()
         except Exception as e:
             logger.error(f"Error updating gang stats: {e}", exc_info=True)
@@ -982,6 +1029,10 @@ class SupabaseDatabase:
     
     def get_all_territories(self) -> Dict:
         """Get all territories"""
+        cache_key = "territories"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         try:
             if not self.is_connected():
                 return {}
@@ -992,6 +1043,7 @@ class SupabaseDatabase:
             for territory in result.data or []:
                 territories[territory['id']] = territory
             
+            self._cache_set(cache_key, territories, ttl=60)
             return territories
             
         except Exception as e:
@@ -1003,6 +1055,7 @@ class SupabaseDatabase:
         try:
             if not self.is_connected():
                 return
+            self._cache_invalidate("territories")
             self.supabase.table('territories').update({
                 'controlled_by': new_gang_id,
                 'defense_points': defense_points
@@ -1841,3 +1894,29 @@ class SupabaseDatabase:
         except Exception as e:
             logger.error(f"Error getting territories status: {e}", exc_info=True)
             return {}
+
+    # === BOT STATE (key-value persistence) ===
+
+    def save_bot_state(self, key: str, data: dict):
+        """Upsert arbitrary JSON state in the bot_state table (key TEXT, value JSONB)."""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('bot_state').upsert({
+                'key': key,
+                'value': data,
+                'updated_at': datetime.now().isoformat()
+            }).execute()
+        except Exception as e:
+            logger.error(f"Error saving bot state '{key}': {e}", exc_info=True)
+
+    def load_bot_state(self, key: str) -> Optional[dict]:
+        """Load JSON state from the bot_state table. Returns None if key absent."""
+        try:
+            if not self.is_connected():
+                return None
+            result = self.supabase.table('bot_state').select('value').eq('key', key).execute()
+            return result.data[0]['value'] if result.data else None
+        except Exception as e:
+            logger.error(f"Error loading bot state '{key}': {e}", exc_info=True)
+            return None
