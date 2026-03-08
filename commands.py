@@ -819,19 +819,19 @@ class Commands(commands.Cog):
                 return
             
             # Vérifier si l'utilisateur a assez de points pour arrêter
-            arrester_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            arrester_data = self.points.database.get_user_data(str(ctx.author.id))
             if arrester_data['points'] < JUSTICE_CONFIG['min_arrest_points']:
                 await ctx.send(f"❌ Tu as besoin d'au moins {JUSTICE_CONFIG['min_arrest_points']} points pour pouvoir arrêter quelqu'un!")
                 return
             
             # Vérifier si la cible est déjà en prison
-            prison_status = self.point_system.database.get_prison_status(str(target.id))
+            prison_status = self.points.database.get_prison_status(str(target.id))
             if prison_status:
                 await ctx.send(f"❌ {target.display_name} est déjà en prison!")
                 return
             
             # Calculer le temps de prison (basé sur une logique simple)
-            target_data = self.point_system.database.get_user_data(str(target.id))
+            target_data = self.points.database.get_user_data(str(target.id))
             base_time = JUSTICE_CONFIG['min_prison_time']
             
             # Plus la personne a de points, plus la peine peut être longue
@@ -840,7 +840,7 @@ class Commands(commands.Cog):
             prison_time = min(prison_time, JUSTICE_CONFIG['max_prison_time'])
             
             # Effectuer l'arrestation
-            success = self.point_system.database.arrest_user(
+            success = self.points.database.arrest_user(
                 str(ctx.author.id), 
                 str(target.id), 
                 reason, 
@@ -849,7 +849,7 @@ class Commands(commands.Cog):
             
             if success:
                 # Déduire le coût d'arrestation
-                self.point_system.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['arrest_cost'])
+                self.points.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['arrest_cost'])
                 
                 embed = discord.Embed(
                     title="🚔 Arrestation Effectuée",
@@ -881,7 +881,7 @@ class Commands(commands.Cog):
         """Pay bail to get out of prison / Payer sa caution pour sortir de prison"""
         try:
             # Vérifier si l'utilisateur est en prison
-            prison_status = self.point_system.database.get_prison_status(str(ctx.author.id))
+            prison_status = self.points.database.get_prison_status(str(ctx.author.id))
             if not prison_status:
                 await ctx.send("❌ Tu n'es pas en prison!")
                 return
@@ -909,13 +909,13 @@ class Commands(commands.Cog):
                 return
             
             # Vérifier si l'utilisateur a assez de points
-            user_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            user_data = self.points.database.get_user_data(str(ctx.author.id))
             if user_data['points'] < amount:
                 await ctx.send(f"❌ Tu n'as pas assez de points! Tu as {user_data['points']} points, il faut {amount}")
                 return
             
             # Payer la caution
-            success = self.point_system.database.pay_bail(str(ctx.author.id), amount)
+            success = self.points.database.pay_bail(str(ctx.author.id), amount)
             
             if success:
                 embed = discord.Embed(
@@ -944,19 +944,19 @@ class Commands(commands.Cog):
                 return
             
             # Vérifier si la cible est en prison
-            prison_status = self.point_system.database.get_prison_status(str(target.id))
+            prison_status = self.points.database.get_prison_status(str(target.id))
             if not prison_status:
                 await ctx.send(f"❌ {target.display_name} n'est pas en prison!")
                 return
             
             # Vérifier si le visiteur a assez de points
-            visitor_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            visitor_data = self.points.database.get_user_data(str(ctx.author.id))
             if visitor_data['points'] < JUSTICE_CONFIG['visit_cost']:
                 await ctx.send(f"❌ Tu as besoin de {JUSTICE_CONFIG['visit_cost']} points pour effectuer une visite!")
                 return
             
             # Effectuer la visite
-            success = self.point_system.database.add_prison_visit(
+            success = self.points.database.add_prison_visit(
                 str(ctx.author.id), 
                 str(target.id), 
                 message
@@ -964,7 +964,7 @@ class Commands(commands.Cog):
             
             if success:
                 # Déduire le coût de visite
-                self.point_system.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['visit_cost'])
+                self.points.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['visit_cost'])
                 
                 embed = discord.Embed(
                     title="🏢 Visite en Prison",
@@ -1001,13 +1001,13 @@ class Commands(commands.Cog):
         """Submit a plea to reduce prison sentence / Plaider pour réduire sa peine de prison"""
         try:
             # Vérifier si l'utilisateur est en prison
-            prison_status = self.point_system.database.get_prison_status(str(ctx.author.id))
+            prison_status = self.points.database.get_prison_status(str(ctx.author.id))
             if not prison_status:
                 await ctx.send("❌ Tu n'es pas en prison! Tu ne peux plaider que si tu es emprisonné.")
                 return
             
             # Soumettre le plaidoyer
-            success = self.point_system.database.submit_plea(str(ctx.author.id), plea_text)
+            success = self.points.database.submit_plea(str(ctx.author.id), plea_text)
             
             if success:
                 # Chance de succès du plaidoyer
@@ -1052,13 +1052,13 @@ class Commands(commands.Cog):
         """Work in prison to earn points and reduce sentence / Travailler en prison pour gagner des points et réduire sa peine"""
         try:
             # Vérifier si l'utilisateur est en prison
-            prison_status = self.point_system.database.get_prison_status(str(ctx.author.id))
+            prison_status = self.points.database.get_prison_status(str(ctx.author.id))
             if not prison_status:
                 await ctx.send("❌ Tu n'es pas en prison! Tu ne peux travailler qu'en étant emprisonné.")
                 return
             
             # Effectuer le travail en prison
-            success, points_earned = self.point_system.database.do_prison_work(str(ctx.author.id))
+            success, points_earned = self.points.database.do_prison_work(str(ctx.author.id))
             
             if success:
                 embed = discord.Embed(
@@ -1342,7 +1342,7 @@ class Commands(commands.Cog):
                 return
 
             # Ajouter les items
-            success = self.point_system.database.admin_add_item(
+            success = self.points.database.admin_add_item(
                 str(ctx.author.id), 
                 str(member.id), 
                 item_id, 
@@ -1391,7 +1391,7 @@ class Commands(commands.Cog):
                 return
 
             # Vérifier l'inventaire actuel
-            current_inventory = self.point_system.database.get_inventory(str(member.id))
+            current_inventory = self.points.database.get_inventory(str(member.id))
             current_count = current_inventory.count(item_id)
             
             if current_count == 0:
@@ -1399,7 +1399,7 @@ class Commands(commands.Cog):
                 return
 
             # Retirer les items
-            success, items_removed = self.point_system.database.admin_remove_item(
+            success, items_removed = self.points.database.admin_remove_item(
                 str(ctx.author.id), 
                 str(member.id), 
                 item_id, 
@@ -1455,7 +1455,7 @@ class Commands(commands.Cog):
                 return
 
             # Vérifier le rôle actuel
-            current_role = self.point_system.database.get_user_role(str(member.id))
+            current_role = self.points.database.get_user_role(str(member.id))
             hierarchy = ADMIN_CONFIG['user_roles_hierarchy']
             
             current_level = hierarchy.index(current_role) if current_role in hierarchy else 0
@@ -1466,7 +1466,7 @@ class Commands(commands.Cog):
                 return
 
             # Effectuer la promotion
-            success = self.point_system.database.admin_set_user_role(
+            success = self.points.database.admin_set_user_role(
                 str(ctx.author.id), 
                 str(member.id), 
                 new_role, 
@@ -1521,7 +1521,7 @@ class Commands(commands.Cog):
                 return
 
             # Vérifier le rôle actuel
-            current_role = self.point_system.database.get_user_role(str(member.id))
+            current_role = self.points.database.get_user_role(str(member.id))
             hierarchy = ADMIN_CONFIG['user_roles_hierarchy']
             
             current_level = hierarchy.index(current_role) if current_role in hierarchy else 0
@@ -1537,7 +1537,7 @@ class Commands(commands.Cog):
                 return
 
             # Effectuer la rétrogradation
-            success = self.point_system.database.admin_set_user_role(
+            success = self.points.database.admin_set_user_role(
                 str(ctx.author.id), 
                 str(member.id), 
                 new_role, 
@@ -1581,7 +1581,7 @@ class Commands(commands.Cog):
                 return
             
             # Vérifier si l'utilisateur a déjà un compte lié
-            user_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            user_data = self.points.database.get_user_data(str(ctx.author.id))
             if user_data.get('twitter'):
                 await ctx.send("❌ Vous avez déjà un compte Twitter lié. Utilisez `!unlinktwitter` d'abord.")
                 return
@@ -1604,11 +1604,11 @@ class Commands(commands.Cog):
             if success:
                 # Sauvegarder le lien
                 user_data['twitter'] = data
-                self.point_system.database.save_data()
+                self.points.database.save_data()
                 
                 # Donner des points bonus pour la liaison
                 bonus_points = 500
-                self.point_system.database.add_points(str(ctx.author.id), bonus_points)
+                self.points.database.add_points(str(ctx.author.id), bonus_points)
                 
                 embed = discord.Embed(
                     title="✅ Compte Twitter lié",
@@ -1739,7 +1739,7 @@ class Commands(commands.Cog):
     async def unlink_twitter(self, ctx):
         """Unlink Twitter account / Délier le compte Twitter"""
         try:
-            user_data = self.point_system.database.get_user_data(str(ctx.author.id))
+            user_data = self.points.database.get_user_data(str(ctx.author.id))
             
             if not user_data.get('twitter'):
                 await ctx.send("❌ Aucun compte Twitter lié.")
@@ -1747,7 +1747,7 @@ class Commands(commands.Cog):
             
             # Supprimer le lien
             del user_data['twitter']
-            self.point_system.database.save_data()
+            self.points.database.save_data()
             
             embed = discord.Embed(
                 title="✅ Compte Twitter délié",

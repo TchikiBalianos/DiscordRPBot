@@ -43,7 +43,7 @@ class GangEvents:
         # Configuration des événements
         self.event_config = {
             GangEventType.TERRITORY_INCOME: {
-                "interval": 3600,  # 1 heure
+                "interval": 86400,  # 24 heures (revenu journalier)
                 "enabled": True
             },
             GangEventType.RANDOM_EVENT: {
@@ -57,7 +57,7 @@ class GangEvents:
             },
             GangEventType.TERRITORY_ATTACK: {
                 "interval": 10800,  # 3 heures
-                "enabled": True,
+                "enabled": False,
                 "chance": 0.2  # 20% de chance
             },
             GangEventType.GANG_BONUS: {
@@ -217,25 +217,13 @@ class GangEvents:
             logger.error(f"Error handling event {event_type}: {e}", exc_info=True)
     
     async def _process_territory_income(self):
-        """Traiter les revenus des territoires toutes les heures"""
-        territories = self.territory_system.get_all_territories()
-        total_income = 0
-        gangs_updated = 0
-        
-        for territory_id, territory_data in territories.items():
-            if territory_data['controlled_by']:
-                gang_id = territory_data['controlled_by']
-                income = territory_data['income_per_hour']
-                
-                # Ajouter les revenus au coffre du gang
-                success = self.gang_system.add_vault_points(gang_id, income)
-                if success:
-                    total_income += income
-                    gangs_updated += 1
-        
-        if gangs_updated > 0:
-            logger.info(f"Processed territory income: {total_income} points distributed to {gangs_updated} gangs")
-    
+        """Distribuer les revenus des territoires (logique TerritorySystem)"""
+        try:
+            # Le TerritorySystem gère déjà la logique avec le champ income_bonus
+            self.territory_system.distribute_territory_income()
+            logger.info("Territory income distributed successfully")
+        except Exception as e:
+            logger.error(f"Error processing territory income: {e}", exc_info=True)
     async def _trigger_random_event(self):
         """Déclencher un événement aléatoire"""
         if not self.random_events:
@@ -259,18 +247,12 @@ class GangEvents:
             await selected_event["effect"](selected_event)
     
     async def _update_wars(self):
-        """Mettre à jour l'état des guerres"""
-        active_wars = self.war_system.get_active_wars()
-        
-        for war_id, war_data in active_wars.items():
-            # Vérifier si la guerre doit se terminer
-            if self.war_system.is_war_expired(war_id):
-                await self._end_war(war_id, war_data)
-            
-            # Vérifier si la guerre doit passer en phase active
-            elif war_data['status'] == 'preparation' and self.war_system.should_start_war(war_id):
-                await self._start_war_phase(war_id, war_data)
-    
+        """Mettre à jour l'état des guerres (délégué au GangWarSystem)"""
+        try:
+            await self.war_system.auto_update_wars()
+        except Exception as e:
+            logger.error(f"Error updating wars: {e}", exc_info=True)
+
     async def _random_territory_attack(self):
         """Attaque aléatoire sur un territoire"""
         territories = self.territory_system.get_all_territories()
@@ -303,27 +285,29 @@ class GangEvents:
             logger.info(f"Territory {territory_data['name']} successfully defended against random attack")
     
     async def _daily_gang_bonuses(self):
-        """Distribuer les bonus quotidiens aux gangs"""
-        gangs = self.gang_system.get_all_gangs()
-        
-        for gang_id, gang_data in gangs.items():
-            member_count = len(gang_data['members'])
-            territory_count = gang_data['territory_count']
-            
-            # Bonus basé sur l'activité du gang
-            base_bonus = 100
-            member_bonus = member_count * 50
-            territory_bonus = territory_count * 200
-            
-            total_bonus = base_bonus + member_bonus + territory_bonus
-            
-            # Ajouter le bonus au coffre
-            self.gang_system.add_vault_points(gang_id, total_bonus)
-            
-            # Notifier le gang
-            await self._notify_gang_daily_bonus(gang_id, total_bonus)
-    
-    # Événements spécifiques
+        """Distribuer les bonus quotidiens aux gangs (safe avec Supabase)"""
+        try:
+            gangs = self.gang_system.get_all_gangs()  # dict {id: gang_row}
+            for gang_id in list(gangs.keys()):
+                gang_info = self.gang_system.get_gang_info(gang_id)  # inclut members via Supabase
+                if not gang_info:
+                    continue
+
+                member_count = len(gang_info.get('members', {}))
+                territory_count = gang_info.get('territory_count', 0) or 0
+
+                base_bonus = 100
+                member_bonus = member_count * 50
+                territory_bonus = territory_count * 200
+                total_bonus = base_bonus + member_bonus + territory_bonus
+
+                self.gang_system.add_vault_points(gang_id, total_bonus)
+                await self._notify_gang_daily_bonus(gang_id, total_bonus)
+
+            logger.info("Daily gang bonuses processed")
+        except Exception as e:
+            logger.error(f"Error in daily gang bonuses: {e}", exc_info=True)
+# Événements spécifiques
     async def _handle_police_raid(self, event_data):
         """Gérer un raid de police"""
         gangs = self.gang_system.get_all_gangs()
