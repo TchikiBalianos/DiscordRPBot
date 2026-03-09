@@ -217,6 +217,30 @@ class Commands(commands.Cog):
             logger.error(f"Error in _find_defense_item: {e}")
             return {}
 
+    async def _safe_send(self, ctx, embed=None, content=None):
+        """Envoie un embed, fallback en texte si pas la permission (403)."""
+        try:
+            if embed:
+                await ctx.send(embed=embed, content=content)
+            elif content:
+                await ctx.send(content)
+        except discord.errors.Forbidden:
+            # Pas la permission d'envoyer des embeds → fallback texte
+            fallback = content or ""
+            if embed:
+                if embed.title:
+                    fallback += f"**{embed.title}**\n"
+                if embed.description:
+                    fallback += f"{embed.description}\n"
+                for field in embed.fields:
+                    fallback += f"\n**{field.name}**\n{field.value}\n"
+                if embed.footer and embed.footer.text:
+                    fallback += f"\n_{embed.footer.text}_"
+            if fallback:
+                await ctx.send(fallback[:2000])
+            else:
+                await ctx.send("(Le bot n'a pas la permission Embed Links. Demande à un admin de l'activer.)")
+
     @commands.command(name='debug')
     @is_bot_owner()
     async def debug_command(self, ctx):
@@ -243,7 +267,7 @@ class Commands(commands.Cog):
                 inline=False
             )
 
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
             logger.info(f"Debug command executed by {ctx.author}")
 
         except Exception as e:
@@ -359,7 +383,6 @@ class Commands(commands.Cog):
                 description="Tape `!help <commande>` pour les détails.\nAliases FR: `!voler`=`!steal`, `!travail`=`!work`, etc.",
                 color=0xFF4500
             )
-            embeds.append(title_embed)
 
             for category, cmds in HELP_DATA.items():
                 lines = []
@@ -368,11 +391,13 @@ class Commands(commands.Cog):
                     if note:
                         line += f" *({note})*"
                     lines.append(line)
-                embed = discord.Embed(title=category, description="\n".join(lines), color=0xFF4500)
-                embeds.append(embed)
+                field_value = "\n".join(lines)
+                # Discord field limit = 1024 chars, truncate if needed
+                if len(field_value) > 1020:
+                    field_value = field_value[:1020] + "..."
+                title_embed.add_field(name=category, value=field_value, inline=False)
 
-            for embed in embeds:
-                await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=title_embed)
             logger.info(f"Help command executed for {ctx.author}")
         except Exception as e:
             logger.error(f"Error in help command: {e}", exc_info=True)
@@ -395,7 +420,7 @@ class Commands(commands.Cog):
         daily = DAILY_LIMITS.get(cmd.name)
         if daily:
             embed.add_field(name="📊 Limite/jour", value=f"{daily}x", inline=True)
-        await ctx.send(embed=embed)
+        await self._safe_send(ctx, embed=embed)
 
     @commands.command(name='points', aliases=['money', 'balance', 'solde', 'argent'])
     async def points_command(self, ctx, member: discord.Member = None):
@@ -583,7 +608,7 @@ class Commands(commands.Cog):
                 embed.add_field(name="Destinataire", value=target.name, inline=True)
                 embed.add_field(name="Montant", value=f"{amount} points", inline=True)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 
                 # Log de l'activité
                 logger.info(f"Gift: {ctx.author.name} gave {amount} points to {target.name}")
@@ -607,32 +632,42 @@ class Commands(commands.Cog):
 
     @commands.command(name='leaderboard', aliases=['classement', 'top'])
     async def leaderboard_command(self, ctx):
-        """Show the monthly leaderboard"""
+        """Classement des plus riches du serveur"""
         try:
             leaderboard = await self.points.get_monthly_leaderboard()
 
+            if not leaderboard:
+                await ctx.send("📊 Aucun joueur dans le classement pour l'instant. Tape `!work` pour commencer !")
+                return
+
             embed = discord.Embed(
-                title="[TARGET] Classement Mensuel des Thugz",
-                description="Les plus grands gangsters du mois:",
+                title="🏆 Classement des Thugz",
+                description="Les plus grands gangsters :",
                 color=discord.Color.gold()
             )
 
+            medals = ["🥇", "🥈", "🥉"]
             for i, user_data in enumerate(leaderboard[:10], 1):
                 try:
                     user_id = str(user_data.get('user_id', ''))
                     points = user_data.get('points', 0)
-                    member = await ctx.guild.fetch_member(int(user_id))
-                    name = member.name if member else f"Membre {user_id}"
+                    # Try to get member name, fallback to ID
+                    try:
+                        member = await ctx.guild.fetch_member(int(user_id))
+                        name = member.display_name
+                    except Exception:
+                        name = user_data.get('username', f"Joueur #{user_id[-4:]}")
+                    medal = medals[i-1] if i <= 3 else f"**{i}.**"
                     embed.add_field(
-                        name=f"{i}. {name}",
-                        value=f"[MONEY] {points} points",
+                        name=f"{medal} {name}",
+                        value=f"💰 **{points:,}** 💵",
                         inline=False
                     )
                 except Exception:
                     continue
 
-            embed.set_footer(text=f"Classement pour {datetime.now().strftime('%B %Y')}")
-            await ctx.send(embed=embed)
+            embed.set_footer(text=f"Classement — {datetime.now().strftime('%B %Y')}")
+            await self._safe_send(ctx, embed=embed)
         except Exception as e:
             logger.error(f"Error in leaderboard command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
@@ -952,7 +987,7 @@ class Commands(commands.Cog):
                 embed.add_field(name="[NETWORK] Role", value=status['role'], inline=True)
                 embed.add_field(name="[STATS] Bonus", value=status.get('role_bonus', 0), inline=True)
 
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
 
         except Exception as e:
             logger.error(f"Error in prison status command: {e}", exc_info=True)
@@ -976,7 +1011,7 @@ class Commands(commands.Cog):
                         inline=False
                     )
 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 return
 
             success, message = await self.points.do_prison_activity(str(ctx.author.id), activity_name)
@@ -1065,7 +1100,7 @@ class Commands(commands.Cog):
                 embed.add_field(name="⏰ Durée", value=f"{prison_time//3600}h {(prison_time%3600)//60}min", inline=True)
                 embed.add_field(name="💰 Caution estimée", value=f"{int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])} points", inline=True)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 
                 # Notification à la cible
                 try:
@@ -1104,7 +1139,7 @@ class Commands(commands.Cog):
                 embed.add_field(name="📝 Motif d'arrestation", value=prison_status['reason'], inline=False)
                 embed.add_field(name="💡 Utilisation", value=f"`!bail {required_bail}` pour payer", inline=False)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 return
             
             # Vérifier le montant
@@ -1129,7 +1164,7 @@ class Commands(commands.Cog):
                 )
                 embed.add_field(name="💸 Points restants", value=f"{user_data['points'] - amount} points", inline=True)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
             else:
                 await ctx.send("❌ Échec du paiement de caution. Réessaie plus tard.")
 
@@ -1179,7 +1214,7 @@ class Commands(commands.Cog):
                 embed.add_field(name="💰 Coût", value=f"{JUSTICE_CONFIG['visit_cost']} points", inline=True)
                 embed.add_field(name="⏰ Temps restant (prisonnier)", value=f"{prison_status['time_left']//60} minutes", inline=True)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 
                 # Notification au prisonnier
                 try:
@@ -1242,7 +1277,7 @@ class Commands(commands.Cog):
                     embed.add_field(name="📢 Tribunal", value="Ta peine reste inchangée", inline=True)
                     embed.color = discord.Color.red()
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
             else:
                 await ctx.send("❌ Échec de la soumission du plaidoyer. Réessaie plus tard.")
 
@@ -1275,7 +1310,7 @@ class Commands(commands.Cog):
                 embed.add_field(name="📈 Comportement", value="Exemplaire", inline=True)
                 embed.add_field(name="💡 Info", value="Tu peux travailler une fois par heure", inline=False)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
             else:
                 await ctx.send("❌ Impossible de travailler maintenant. Réessaie plus tard.")
 
@@ -1319,7 +1354,7 @@ class Commands(commands.Cog):
                         inline=False
                     )
 
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
             logger.info(f"Shop displayed to {ctx.author}")
         except Exception as e:
             logger.error(f"Error in shop command: {e}", exc_info=True)
@@ -1518,7 +1553,7 @@ class Commands(commands.Cog):
             )
             embed.add_field(name="Utilisateur", value=f"{member.mention}", inline=True)
             embed.add_field(name="Resets effectués", value=f"{reset_count}", inline=True)
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
             logger.warning(f"AUDIT: Owner {ctx.author} ({ctx.author.id}) reset cooldowns for {member} ({member.id})")
 
         except Exception as e:
@@ -1567,7 +1602,7 @@ class Commands(commands.Cog):
                 if reason:
                     embed.add_field(name="📋 Raison", value=reason, inline=False)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 
                 # Notification à l'utilisateur cible
                 try:
@@ -1624,7 +1659,7 @@ class Commands(commands.Cog):
                 if reason:
                     embed.add_field(name="📋 Raison", value=reason, inline=False)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 
                 # Notification à l'utilisateur cible
                 try:
@@ -1690,7 +1725,7 @@ class Commands(commands.Cog):
                 if reason:
                     embed.add_field(name="📋 Raison", value=reason, inline=False)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 
                 # Notification à l'utilisateur
                 try:
@@ -1759,7 +1794,7 @@ class Commands(commands.Cog):
                 embed.add_field(name="📊 Changement", value=f"{current_role} → {new_role}", inline=True)
                 embed.add_field(name="📋 Raison", value=reason, inline=False)
                 
-                await ctx.send(embed=embed)
+                await self._safe_send(ctx, embed=embed)
                 
                 # Notification à l'utilisateur
                 try:
@@ -1800,7 +1835,7 @@ class Commands(commands.Cog):
                            f"Cela peut prendre jusqu'à 15 minutes selon la file d'attente.",
                 color=0x1DA1F2
             )
-            status_msg = await ctx.send(embed=embed)
+            status_msg = await self._safe_send(ctx, embed=embed)
             
             # Vérifier le compte avec rate limiting
             success, data = await self.twitter_handler.verify_account(username)
@@ -1888,7 +1923,7 @@ class Commands(commands.Cog):
                     inline=False
                 )
             
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
             
         except Exception as e:
             logger.error(f"Error in twitter_status command: {e}", exc_info=True)
@@ -1933,7 +1968,7 @@ class Commands(commands.Cog):
                     inline=False
                 )
             
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
             
         except Exception as e:
             logger.error(f"Error in twitter_queue command: {e}", exc_info=True)
@@ -1958,7 +1993,7 @@ class Commands(commands.Cog):
                 description="Votre compte Twitter a été délié avec succès.",
                 color=0x00FF00
             )
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
             
         except Exception as e:
             logger.error(f"Error in unlink_twitter command: {e}", exc_info=True)
@@ -2064,7 +2099,7 @@ class Commands(commands.Cog):
                 inv_text += f" (+{len(inv)-5} autres)"
             embed.add_field(name="🎒 Inventaire", value=inv_text, inline=False)
 
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
 
         except Exception as e:
             logger.error(f"Error in profil command: {e}", exc_info=True)
@@ -2133,7 +2168,7 @@ class Commands(commands.Cog):
             )
 
             # Use reactions for consent
-            msg = await ctx.send(embed=embed)
+            msg = await self._safe_send(ctx, embed=embed)
             await msg.add_reaction("✅")
             await msg.add_reaction("❌")
 
@@ -2188,7 +2223,7 @@ class Commands(commands.Cog):
                 description=outcome_text,
                 color=0xFF69B4 if success else 0x808080
             )
-            await ctx.send(embed=result_embed)
+            await self._safe_send(ctx, embed=result_embed)
 
         except Exception as e:
             logger.error(f"Error in ken command: {e}", exc_info=True)
@@ -2436,7 +2471,7 @@ class Commands(commands.Cog):
                     description=f"{scenario_text}\n\n**MAIS** ta **{item_name}** annule tous les effets negatifs !\nTu t'en sors sans degats. Ouf !\n*({item_name} consommee)*",
                     color=0x00FF00
                 )
-                await ctx.send(embed=embed_heal)
+                await self._safe_send(ctx, embed=embed_heal)
                 return
 
             # ── Appliquer les effets ──
@@ -2519,7 +2554,7 @@ class Commands(commands.Cog):
             result_lines.append(f"\n🏦 Solde actuel: **{new_points:,}** 💵")
             embed.add_field(name="📊 Bilan", value="\n".join(result_lines), inline=False)
 
-            await ctx.send(embed=embed)
+            await self._safe_send(ctx, embed=embed)
 
         except Exception as e:
             logger.error(f"Error in wesh command: {e}", exc_info=True)
