@@ -123,6 +123,16 @@ JUSTICE_CONFIG = {
     "plea_success_rate": 0.3,     # 30% de chance de succès pour plaider
 }
 
+# ═══ PRISON DISCORD CONFIG ═══
+# Le bot crée automatiquement le rôle et le channel s'ils n'existent pas
+PRISON_DISCORD = {
+    "role_name": "🔒 Prisonnier",        # Nom du rôle attribué aux prisonniers
+    "channel_name": "prison",              # Nom du channel prison (sera créé si absent)
+    "category_name": "THUGZ JUSTICE",      # Catégorie dans laquelle créer le channel
+    "announce_channel": None,              # Channel pour les annonces d'arrestation (None = même channel)
+    "auto_release_check": 60,             # Vérifier les libérations toutes les 60 secondes
+}
+
 # Administration System Configuration (nouveau selon TECH Brief)
 ADMIN_CONFIG = {
     "max_items_per_action": 10,    # Maximum d'items par commande admin
