@@ -69,6 +69,11 @@ DAILY_LIMITS = {
     "loto": 3,       # 3 tickets loto par jour
     "casino": 5,     # 5 parties casino par jour
     "insulter": 5,   # 5 insultes par jour
+    # ── Commandes de galère ──
+    "vendrecul": 5,     # 5x par jour
+    "vendreslip": 5,    # 5x par jour
+    "vendredigite": 8,  # 8x par jour
+    "pret": 3,          # 3 demandes de prêt par jour
 }
 
 # Command Cooldowns Configuration (selon TECH Brief specs)
@@ -95,6 +100,11 @@ COMMAND_COOLDOWNS = {
     "loto": 2 * 3600,      # 2 heures entre chaque loto
     "casino": 30 * 60,     # 30 min entre chaque casino
     "insulter": 20 * 60,   # 20 min entre chaque insulte
+    # ── Commandes de galère (négatif) ──
+    "vendrecul": 30 * 60,  # 30 min
+    "vendreslip": 20 * 60, # 20 min
+    "vendredigite": 15 * 60, # 15 min
+    "pret": 1 * 3600,      # 1h entre chaque demande de prêt
 }
 
 # Justice System Configuration (nouveau selon TECH Brief)
