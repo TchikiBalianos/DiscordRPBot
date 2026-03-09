@@ -8,7 +8,7 @@ from config import (
     OWNER_ID, APPROVED_STAFF_IDS, DAILY_LIMITS, COMMAND_COOLDOWNS,
     COMMAND_NARRATIONS, EMOJI_POOL, COMBAT_FIRST_MOVE_TIMEOUT,
     COMBAT_REACTION_TIMEOUT, JUSTICE_CONFIG, ADMIN_CONFIG,
-    SHOP_ITEMS, SHOP_ITEMS_NEW, PRISON_ACTIVITIES,
+    SHOP_ITEMS, SHOP_ITEMS_NEW, PRISON_ACTIVITIES, PRISON_DISCORD,
     STAFF_EDITPOINTS_MAX_ADD, STAFF_EDITPOINTS_MAX_REMOVE,
 )
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
@@ -130,6 +130,19 @@ class Commands(commands.Cog):
         logger.info("Commands cog initialized")
         # Log all commands that will be registered
         logger.info(f"Commands being registered: {[method for method in dir(self) if method.endswith('_command')]}")
+        # Start prison auto-release task
+        self._prison_monitor_task = self.bot.loop.create_task(self._prison_monitor_loop())
+
+    async def _prison_monitor_loop(self):
+        """Background task: libère automatiquement les prisonniers dont la peine est finie."""
+        await self.bot.wait_until_ready()
+        interval = PRISON_DISCORD.get("auto_release_check", 60)
+        while not self.bot.is_closed():
+            try:
+                await self._check_auto_releases()
+            except Exception as e:
+                logger.error(f"Prison monitor error: {e}")
+            await asyncio.sleep(interval)
 
     # ══════════════════════════════════════════════════════════════
     # ══  SYSTÈME D'ITEMS — MOTEUR D'EFFETS                     ══
@@ -216,6 +229,215 @@ class Commands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in _find_defense_item: {e}")
             return {}
+
+    # ══════════════════════════════════════════════════════════════
+    # ══  SYSTÈME PRISON — GESTION DES RÔLES DISCORD            ══
+    # ══════════════════════════════════════════════════════════════
+
+    async def _get_or_create_prison_role(self, guild):
+        """Récupère ou crée le rôle Prisonnier."""
+        role_name = PRISON_DISCORD.get("role_name", "🔒 Prisonnier")
+        role = discord.utils.get(guild.roles, name=role_name)
+        if not role:
+            try:
+                role = await guild.create_role(
+                    name=role_name,
+                    color=discord.Color.dark_grey(),
+                    reason="Thugz Bot — Rôle prison auto-créé"
+                )
+                logger.info(f"Created prison role: {role_name} in {guild.name}")
+            except Exception as e:
+                logger.error(f"Failed to create prison role: {e}")
+                return None
+        return role
+
+    async def _get_or_create_prison_channel(self, guild):
+        """Récupère ou crée le channel prison avec les bonnes permissions."""
+        channel_name = PRISON_DISCORD.get("channel_name", "prison")
+        channel = discord.utils.get(guild.text_channels, name=channel_name)
+        if channel:
+            return channel
+
+        try:
+            # Créer la catégorie si elle n'existe pas
+            cat_name = PRISON_DISCORD.get("category_name", "THUGZ JUSTICE")
+            category = discord.utils.get(guild.categories, name=cat_name)
+            if not category:
+                category = await guild.create_category(cat_name)
+
+            prison_role = await self._get_or_create_prison_role(guild)
+
+            # Permissions: personne ne voit sauf les prisonniers et le bot
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(
+                    view_channel=False, send_messages=False
+                ),
+                guild.me: discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, manage_messages=True
+                ),
+            }
+            if prison_role:
+                overwrites[prison_role] = discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True,
+                    add_reactions=True
+                )
+
+            channel = await guild.create_text_channel(
+                channel_name, category=category, overwrites=overwrites,
+                topic="🔒 Cellule de prison — Seuls les prisonniers peuvent parler ici."
+            )
+            logger.info(f"Created prison channel: #{channel_name} in {guild.name}")
+            return channel
+        except Exception as e:
+            logger.error(f"Failed to create prison channel: {e}")
+            return None
+
+    async def _imprison_member(self, member, duration_seconds, reason="N/A"):
+        """Emprisonne un membre: sauvegarde ses rôles, les retire, ajoute le rôle prisonnier."""
+        try:
+            guild = member.guild
+            user_id = str(member.id)
+            prison_role = await self._get_or_create_prison_role(guild)
+            if not prison_role:
+                return False
+
+            # Sauvegarder les rôles actuels (sauf @everyone et le rôle prisonnier)
+            saved_roles = [r.id for r in member.roles if r != guild.default_role and r != prison_role]
+            try:
+                roles_data = self.points.database.load_bot_state("saved_roles") or {}
+                roles_data[user_id] = saved_roles
+                self.points.database.save_bot_state("saved_roles", roles_data)
+            except Exception as e:
+                logger.error(f"Failed to save roles: {e}")
+
+            # Retirer tous les rôles (sauf @everyone)
+            try:
+                roles_to_remove = [r for r in member.roles if r != guild.default_role and r.is_assignable()]
+                if roles_to_remove:
+                    await member.remove_roles(*roles_to_remove, reason=f"Prison: {reason}")
+            except Exception as e:
+                logger.error(f"Failed to remove roles: {e}")
+
+            # Ajouter le rôle prisonnier
+            try:
+                await member.add_roles(prison_role, reason=f"Prison: {reason}")
+            except Exception as e:
+                logger.error(f"Failed to add prison role: {e}")
+
+            # Enregistrer en DB
+            import time as _time
+            release_time = _time.time() + duration_seconds
+            self.points.database.set_prison_time(user_id, release_time)
+
+            # Log la transaction
+            self.points.add_points(user_id, 0, f"PRISON: {reason} ({duration_seconds//60}min)")
+
+            return True
+        except Exception as e:
+            logger.error(f"Error in _imprison_member: {e}", exc_info=True)
+            return False
+
+    async def _release_member(self, member):
+        """Libère un prisonnier: retire le rôle prison, restaure ses anciens rôles."""
+        try:
+            guild = member.guild
+            user_id = str(member.id)
+            prison_role = await self._get_or_create_prison_role(guild)
+
+            # Retirer le rôle prisonnier
+            if prison_role and prison_role in member.roles:
+                try:
+                    await member.remove_roles(prison_role, reason="Libération de prison")
+                except Exception as e:
+                    logger.error(f"Failed to remove prison role: {e}")
+
+            # Restaurer les anciens rôles
+            try:
+                roles_data = self.points.database.load_bot_state("saved_roles") or {}
+                saved_role_ids = roles_data.get(user_id, [])
+                if saved_role_ids:
+                    roles_to_add = []
+                    for role_id in saved_role_ids:
+                        role = guild.get_role(role_id)
+                        if role and role.is_assignable():
+                            roles_to_add.append(role)
+                    if roles_to_add:
+                        await member.add_roles(*roles_to_add, reason="Sortie de prison — rôles restaurés")
+
+                    # Nettoyer la sauvegarde
+                    del roles_data[user_id]
+                    self.points.database.save_bot_state("saved_roles", roles_data)
+            except Exception as e:
+                logger.error(f"Failed to restore roles: {e}")
+
+            # Nettoyer en DB
+            self.points.database.remove_prison_time(user_id)
+
+            # Log
+            self.points.add_points(user_id, 0, "LIBERATION de prison")
+
+            return True
+        except Exception as e:
+            logger.error(f"Error in _release_member: {e}", exc_info=True)
+            return False
+
+    async def _check_auto_releases(self):
+        """Vérifie et libère automatiquement les prisonniers dont la peine est finie."""
+        try:
+            import time as _time
+            now = _time.time()
+            for guild in self.bot.guilds:
+                prison_role = discord.utils.get(guild.roles, name=PRISON_DISCORD.get("role_name", "🔒 Prisonnier"))
+                if not prison_role:
+                    continue
+                for member in prison_role.members:
+                    user_id = str(member.id)
+                    release_time = self.points.database.get_prison_time(user_id)
+                    if release_time and float(release_time) <= now:
+                        await self._release_member(member)
+                        # Annonce
+                        prison_channel = await self._get_or_create_prison_channel(guild)
+                        if prison_channel:
+                            await prison_channel.send(f"🔓 **{member.display_name}** a purgé sa peine et est libre !")
+                        logger.info(f"Auto-released {member.display_name} from prison")
+        except Exception as e:
+            logger.error(f"Error in auto-release check: {e}")
+
+    def _is_prison_channel(self, ctx):
+        """Vérifie si on est dans le channel prison."""
+        return ctx.channel.name == PRISON_DISCORD.get("channel_name", "prison")
+
+    async def _get_user_history(self, user_id):
+        """Récupère l'historique complet d'un joueur depuis point_transactions."""
+        try:
+            db = self.points.database
+            if not db.is_connected():
+                return {}
+            result = db.supabase.table('point_transactions').select('*').eq('user_id', user_id).order('timestamp', desc=True).limit(100).execute()
+            if not result.data:
+                return {"total_actions": 0, "crimes": 0, "work": 0, "prison": 0, "deals": 0, "gambling": 0}
+
+            stats = {"total_actions": len(result.data), "crimes": 0, "work": 0, "prison": 0, "deals": 0, "gambling": 0, "ken": 0, "wesh": 0}
+            for tx in result.data:
+                reason = (tx.get('reason', '') or '').lower()
+                if any(w in reason for w in ['steal', 'rob', 'vol', 'pickpocket', 'carjack', 'braquage']):
+                    stats["crimes"] += 1
+                elif any(w in reason for w in ['work', 'travail', 'boulot']):
+                    stats["work"] += 1
+                elif any(w in reason for w in ['prison', 'libera', 'arrest']):
+                    stats["prison"] += 1
+                elif any(w in reason for w in ['deal', 'dealer', 'trafic']):
+                    stats["deals"] += 1
+                elif any(w in reason for w in ['casino', 'loto', 'roulette']):
+                    stats["gambling"] += 1
+                elif 'ken' in reason:
+                    stats["ken"] += 1
+                elif 'wesh' in reason:
+                    stats["wesh"] += 1
+            return stats
+        except Exception as e:
+            logger.error(f"Error getting user history: {e}")
+            return {"total_actions": 0, "crimes": 0, "work": 0, "prison": 0}
 
     async def _safe_send(self, ctx, embed=None, content=None):
         """Envoie un embed, fallback en texte si pas la permission (403). Retourne le message."""
@@ -976,25 +1198,42 @@ class Commands(commands.Cog):
 
     @commands.command(name='prison', aliases=['status', 'statut', 'cellule'])
     async def prison_status_command(self, ctx, member: discord.Member = None):
-        """Check prison status / Vérifier le statut de prison"""
+        """Vérifier le statut de prison d'un joueur"""
         try:
             target = member or ctx.author
-            status = await self.points.get_prison_status(str(target.id))
+            user_id = str(target.id)
+            prison_role = discord.utils.get(ctx.guild.roles, name=PRISON_DISCORD.get("role_name", "🔒 Prisonnier"))
+            is_imprisoned = prison_role and prison_role in target.roles
 
-            if not status:
-                await ctx.send(f"✅ {target.name} n'est pas en prison!")
+            if not is_imprisoned:
+                await ctx.send(f"✅ **{target.display_name}** est libre !")
                 return
 
+            # Temps restant
+            import time as _time
+            release_time = self.points.database.get_prison_time(user_id)
+            remaining = max(0, int(float(release_time or 0) - _time.time())) if release_time else 0
+            hours = remaining // 3600
+            mins = (remaining % 3600) // 60
+            time_str = f"{hours}h {mins:02d}min" if hours else f"{mins}min"
+
+            bail_amount = int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])
+
             embed = discord.Embed(
-                title="[PRISON] Status Prison",
-                description=f"Status de {target.name}",
+                title=f"🔒 {target.display_name} — EN PRISON",
+                description="Enfermé(e) dans les cellules du serveur.",
                 color=discord.Color.dark_grey()
             )
-
-            embed.add_field(name="[RETRY] Temps restant", value=f"{status.get('prison_time_remaining', 0)} secondes", inline=False)
-            if status.get('role'):
-                embed.add_field(name="[NETWORK] Role", value=status['role'], inline=True)
-                embed.add_field(name="[STATS] Bonus", value=status.get('role_bonus', 0), inline=True)
+            embed.set_thumbnail(url=target.display_avatar.url)
+            embed.add_field(name="⏰ Temps restant", value=f"**{time_str}**", inline=True)
+            embed.add_field(name="💰 Caution", value=f"**{bail_amount:,}** 💵", inline=True)
+            embed.add_field(name="📋 Commandes dispo", value=(
+                "`!activity` — Réduire ta peine\n"
+                "`!prisonwork` — Bosser en prison\n"
+                "`!bail` — Payer ta caution\n"
+                "`!tribunal` — Demander un procès\n"
+                "`!plead` — Plaider ta cause"
+            ), inline=False)
 
             await self._safe_send(ctx, embed=embed)
 
@@ -1004,7 +1243,12 @@ class Commands(commands.Cog):
 
     @commands.command(name='activity', aliases=['activite', 'action', 'faire'])
     async def prison_activity_command(self, ctx, activity_name: str = None):
-        """Do a prison activity or list available activities / Faire une activité en prison"""
+        """Activité en prison — UNIQUEMENT dans le channel prison"""
+        # Check: doit être en prison
+        prison_role = discord.utils.get(ctx.guild.roles, name=PRISON_DISCORD.get("role_name", "🔒 Prisonnier"))
+        if not prison_role or prison_role not in ctx.author.roles:
+            await ctx.send("❌ Tu n'es pas en prison ! Cette commande est réservée aux prisonniers.")
+            return
         try:
             if not activity_name:
                 embed = discord.Embed(
@@ -1055,194 +1299,193 @@ class Commands(commands.Cog):
     @commands.command(name='arrest', aliases=['arreter', 'arreter_suspect'])
     @commands.cooldown(1, COMMAND_COOLDOWNS.get("arrest", 3600), commands.BucketType.user)
     async def arrest_command(self, ctx, target: discord.Member, *, reason: str):
-        """Arrest a user and send them to prison / Arrêter un utilisateur et l'envoyer en prison"""
+        """Arrêter quelqu'un et l'envoyer en prison (rôles Discord gérés)"""
         try:
-            # Vérifications de base
             if target == ctx.author:
                 await ctx.send("❌ Tu ne peux pas t'arrêter toi-même!")
                 return
-            
             if target.bot:
                 await ctx.send("❌ Tu ne peux pas arrêter un bot!")
                 return
-            
-            # Vérifier si l'utilisateur a assez de points pour arrêter
+
             arrester_data = self.points.database.get_user_data(str(ctx.author.id))
             if arrester_data['points'] < JUSTICE_CONFIG['min_arrest_points']:
-                await ctx.send(f"❌ Tu as besoin d'au moins {JUSTICE_CONFIG['min_arrest_points']} points pour pouvoir arrêter quelqu'un!")
+                await ctx.send(f"❌ Il te faut au moins {JUSTICE_CONFIG['min_arrest_points']} 💵 pour arrêter quelqu'un!")
                 return
-            
-            # Vérifier si la cible est déjà en prison
-            prison_status = self.points.database.get_prison_status(str(target.id))
-            if prison_status:
+
+            # Vérifier si déjà en prison
+            prison_role = await self._get_or_create_prison_role(ctx.guild)
+            if prison_role and prison_role in target.roles:
                 await ctx.send(f"❌ {target.display_name} est déjà en prison!")
                 return
-            
-            # Calculer le temps de prison (basé sur une logique simple)
-            target_data = self.points.database.get_user_data(str(target.id))
+
+            # Calculer le temps de prison (1h à 24h)
             base_time = JUSTICE_CONFIG['min_prison_time']
-            
-            # Plus la personne a de points, plus la peine peut être longue
-            time_multiplier = min(target_data['points'] / 5000, 3.0)  # Max 3x
-            prison_time = int(base_time * time_multiplier)
+            target_data = self.points.database.get_user_data(str(target.id))
+            time_multiplier = min(target_data.get('points', 0) / 5000, 3.0)
+            prison_time = max(base_time, int(base_time * max(1, time_multiplier)))
             prison_time = min(prison_time, JUSTICE_CONFIG['max_prison_time'])
-            
-            # Effectuer l'arrestation
-            success = self.points.database.arrest_user(
-                str(ctx.author.id), 
-                str(target.id), 
-                reason, 
-                prison_time
+
+            # Payer le coût d'arrestation
+            self.points.remove_points(str(ctx.author.id), JUSTICE_CONFIG['arrest_cost'])
+
+            # EMPRISONNER (rôles Discord + DB)
+            success = await self._imprison_member(target, prison_time, reason)
+            if not success:
+                await ctx.send("❌ Échec de l'arrestation (erreur de permissions Discord).")
+                return
+
+            hours = prison_time // 3600
+            mins = (prison_time % 3600) // 60
+            time_str = f"{hours}h {mins:02d}min" if hours else f"{mins}min"
+            bail_amount = int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])
+
+            embed = discord.Embed(
+                title="🚔 ARRESTATION !",
+                description=f"**{target.display_name}** a été arrêté(e) et envoyé(e) en prison !",
+                color=discord.Color.red()
             )
-            
-            if success:
-                # Déduire le coût d'arrestation
-                self.points.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['arrest_cost'])
-                
-                embed = discord.Embed(
-                    title="🚔 Arrestation Effectuée",
-                    description=f"**{target.display_name}** a été arrêté(e)!",
-                    color=discord.Color.red()
+            embed.add_field(name="👮 Arrêté par", value=ctx.author.display_name, inline=True)
+            embed.add_field(name="📝 Motif", value=reason, inline=True)
+            embed.add_field(name="⏰ Durée", value=time_str, inline=True)
+            embed.add_field(name="💰 Caution", value=f"{bail_amount:,} 💵", inline=True)
+            embed.add_field(name="🔒 Effets", value="Rôles retirés, accès limité au channel prison uniquement", inline=False)
+            await self._safe_send(ctx, embed=embed)
+
+            # Annonce dans le channel prison
+            prison_channel = await self._get_or_create_prison_channel(ctx.guild)
+            if prison_channel:
+                await prison_channel.send(
+                    f"🚔 **NOUVEAU PRISONNIER** — {target.mention} vient d'arriver !\n"
+                    f"📝 Motif: {reason}\n⏰ Peine: {time_str}\n"
+                    f"Utilise `!activity` pour réduire ta peine ou `!bail` pour payer ta caution."
                 )
-                embed.add_field(name="👮 Arrêté par", value=ctx.author.display_name, inline=True)
-                embed.add_field(name="📝 Motif", value=reason, inline=True)
-                embed.add_field(name="⏰ Durée", value=f"{prison_time//3600}h {(prison_time%3600)//60}min", inline=True)
-                embed.add_field(name="💰 Caution estimée", value=f"{int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])} points", inline=True)
-                
-                await self._safe_send(ctx, embed=embed)
-                
-                # Notification à la cible
-                try:
-                    await target.send(f"🚔 Tu as été arrêté(e) par **{ctx.author.display_name}** pour: {reason}\nTemps de prison: {prison_time//3600}h {(prison_time%3600)//60}min\nUtilise `!bail` pour payer ta caution!")
-                except:
-                    pass  # Si les DM sont fermés
-            else:
-                await ctx.send("❌ Échec de l'arrestation. Réessaie plus tard.")
+
+            # DM à la cible
+            try:
+                await target.send(f"🚔 Tu as été arrêté(e) par **{ctx.author.display_name}** pour: {reason}\nPeine: {time_str}\nTape `!bail` pour payer ta caution ou `!activity` pour réduire ta peine!")
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"Error in arrest command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite lors de l'arrestation.")
 
     @commands.command(name='bail', aliases=['caution', 'payer_caution'])
-    @commands.cooldown(1, COMMAND_COOLDOWNS.get("bail", 1800), commands.BucketType.user)
+    @check_cooldown_and_limit('bail')
     async def bail_command(self, ctx, amount: int = None):
-        """Pay bail to get out of prison / Payer sa caution pour sortir de prison"""
+        """Payer ta caution pour sortir de prison (restaure tes rôles)"""
         try:
-            # Vérifier si l'utilisateur est en prison
-            prison_status = self.points.database.get_prison_status(str(ctx.author.id))
-            if not prison_status:
+            user_id = str(ctx.author.id)
+            prison_role = await self._get_or_create_prison_role(ctx.guild)
+
+            if not prison_role or prison_role not in ctx.author.roles:
                 await ctx.send("❌ Tu n'es pas en prison!")
                 return
-            
-            # Calculer le montant de caution requis
-            required_bail = int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])
-            
-            if amount is None:
-                embed = discord.Embed(
-                    title="💰 Informations Caution",
-                    description="Tu peux payer ta caution pour sortir de prison",
-                    color=discord.Color.gold()
-                )
-                embed.add_field(name="🚔 Temps restant", value=f"{prison_status['time_left']//60} minutes", inline=True)
-                embed.add_field(name="💵 Caution requise", value=f"{required_bail} points", inline=True)
-                embed.add_field(name="📝 Motif d'arrestation", value=prison_status['reason'], inline=False)
-                embed.add_field(name="💡 Utilisation", value=f"`!bail {required_bail}` pour payer", inline=False)
-                
-                await self._safe_send(ctx, embed=embed)
+
+            bail_amount = amount or int(JUSTICE_CONFIG['base_bail_amount'] * JUSTICE_CONFIG['bail_multiplier'])
+            current_points = int(self.points.get_user_data(user_id).get('points', 0))
+
+            if current_points < bail_amount:
+                await ctx.send(f"❌ La caution est de **{bail_amount:,}** 💵 et tu n'as que **{current_points:,}** 💵.")
                 return
-            
-            # Vérifier le montant
-            if amount < required_bail:
-                await ctx.send(f"❌ Montant insuffisant! Caution requise: {required_bail} points")
-                return
-            
-            # Vérifier si l'utilisateur a assez de points
-            user_data = self.points.database.get_user_data(str(ctx.author.id))
-            if user_data['points'] < amount:
-                await ctx.send(f"❌ Tu n'as pas assez de points! Tu as {user_data['points']} points, il faut {amount}")
-                return
-            
-            # Payer la caution
-            success = self.points.database.pay_bail(str(ctx.author.id), amount)
-            
+
+            # Payer et libérer
+            self.points.remove_points(user_id, bail_amount)
+            success = await self._release_member(ctx.author)
+
             if success:
-                embed = discord.Embed(
-                    title="🔓 Liberté Retrouvée!",
-                    description=f"Tu as payé {amount} points de caution et tu es maintenant libre!",
-                    color=discord.Color.green()
+                await ctx.send(
+                    f"🔓 **LIBÉRÉ(E) !** {ctx.author.display_name} a payé sa caution de **{bail_amount:,}** 💵 et est libre !\n"
+                    f"Tes rôles ont été restaurés."
                 )
-                embed.add_field(name="💸 Points restants", value=f"{user_data['points'] - amount} points", inline=True)
-                
-                await self._safe_send(ctx, embed=embed)
             else:
-                await ctx.send("❌ Échec du paiement de caution. Réessaie plus tard.")
+                await ctx.send("❌ Erreur lors de la libération. Contacte un admin.")
 
         except Exception as e:
             logger.error(f"Error in bail command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite lors du paiement de caution.")
+            await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='visit', aliases=['visiter', 'visite_prison'])
-    @commands.cooldown(1, COMMAND_COOLDOWNS.get("visit", 7200), commands.BucketType.user)
-    async def visit_command(self, ctx, target: discord.Member, *, message: str):
-        """Visit someone in prison / Visiter quelqu'un en prison"""
+    @check_cooldown_and_limit('visit')
+    async def visit_command(self, ctx, target: discord.Member = None, *, message: str = ""):
+        """Visiter un prisonnier — tu payes + le prisonnier doit accepter ta visite"""
         try:
-            # Vérifications de base
-            if target == ctx.author:
-                await ctx.send("❌ Tu ne peux pas te rendre visite à toi-même!")
+            if not target:
+                await ctx.send("❌ Usage: `!visit @prisonnier Ton message`")
                 return
-            
-            # Vérifier si la cible est en prison
-            prison_status = self.points.database.get_prison_status(str(target.id))
-            if not prison_status:
+
+            user_id = str(ctx.author.id)
+            target_id = str(target.id)
+            visit_cost = JUSTICE_CONFIG.get('visit_cost', 100)
+
+            # Vérifier que la cible est en prison
+            prison_role = await self._get_or_create_prison_role(ctx.guild)
+            if not prison_role or prison_role not in target.roles:
                 await ctx.send(f"❌ {target.display_name} n'est pas en prison!")
                 return
-            
-            # Vérifier si le visiteur a assez de points
-            visitor_data = self.points.database.get_user_data(str(ctx.author.id))
-            if visitor_data['points'] < JUSTICE_CONFIG['visit_cost']:
-                await ctx.send(f"❌ Tu as besoin de {JUSTICE_CONFIG['visit_cost']} points pour effectuer une visite!")
+
+            # Vérifier les fonds
+            current_points = int(self.points.get_user_data(user_id).get('points', 0))
+            if current_points < visit_cost:
+                await ctx.send(f"❌ Une visite coûte **{visit_cost}** 💵 et tu n'as que **{current_points:,}** 💵.")
                 return
-            
-            # Effectuer la visite
-            success = self.points.database.add_prison_visit(
-                str(ctx.author.id), 
-                str(target.id), 
-                message
+
+            # Demander l'accord du prisonnier
+            prison_channel = await self._get_or_create_prison_channel(ctx.guild)
+            if not prison_channel:
+                await ctx.send("❌ Pas de channel prison trouvé.")
+                return
+
+            request_msg = await prison_channel.send(
+                f"🔔 **DEMANDE DE VISITE**\n"
+                f"{ctx.author.display_name} veut te rendre visite, {target.mention} !\n"
+                f"{'Message: *' + message + '*' if message else ''}\n\n"
+                f"Réagis ✅ pour accepter ou ❌ pour refuser."
             )
-            
-            if success:
-                # Déduire le coût de visite
-                self.points.database.remove_points(str(ctx.author.id), JUSTICE_CONFIG['visit_cost'])
-                
-                embed = discord.Embed(
-                    title="🏢 Visite en Prison",
-                    description=f"Tu as rendu visite à **{target.display_name}**",
-                    color=discord.Color.blue()
-                )
-                embed.add_field(name="💬 Ton message", value=message, inline=False)
-                embed.add_field(name="💰 Coût", value=f"{JUSTICE_CONFIG['visit_cost']} points", inline=True)
-                embed.add_field(name="⏰ Temps restant (prisonnier)", value=f"{prison_status['time_left']//60} minutes", inline=True)
-                
-                await self._safe_send(ctx, embed=embed)
-                
-                # Notification au prisonnier
-                try:
-                    visit_embed = discord.Embed(
-                        title="👥 Tu as reçu une visite!",
-                        description=f"**{ctx.author.display_name}** est venu(e) te voir en prison",
-                        color=discord.Color.blue()
-                    )
-                    visit_embed.add_field(name="💬 Message", value=message, inline=False)
-                    
-                    await target.send(embed=visit_embed)
-                except:
-                    pass  # Si les DM sont fermés
-            else:
-                await ctx.send("❌ Échec de la visite. Réessaie plus tard.")
+            await request_msg.add_reaction("✅")
+            await request_msg.add_reaction("❌")
+
+            def check(reaction, user):
+                return user.id == target.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == request_msg.id
+
+            try:
+                reaction, _ = await self.bot.wait_for('reaction_add', check=check, timeout=120)
+            except asyncio.TimeoutError:
+                await prison_channel.send(f"⏰ {target.display_name} n'a pas répondu. Visite annulée.")
+                return
+
+            if str(reaction.emoji) == "❌":
+                await prison_channel.send(f"❌ {target.display_name} refuse la visite.")
+                return
+
+            # Payer et autoriser la visite (accès temporaire au channel prison)
+            self.points.remove_points(user_id, visit_cost)
+
+            # Donner accès temporaire au visiteur
+            try:
+                await prison_channel.set_permissions(ctx.author, view_channel=True, send_messages=True)
+            except Exception:
+                pass
+
+            await prison_channel.send(
+                f"✅ **VISITE ACCEPTÉE** — {ctx.author.display_name} entre dans la prison.\n"
+                f"{'📝 Message: *' + message + '*' if message else ''}\n"
+                f"💰 Coût: **{visit_cost}** 💵\n\n"
+                f"⏰ La visite dure **5 minutes**. Parlez vite !"
+            )
+
+            # Retirer l'accès après 5 minutes
+            await asyncio.sleep(300)
+            try:
+                await prison_channel.set_permissions(ctx.author, overwrite=None)
+            except Exception:
+                pass
+            await prison_channel.send(f"🔒 La visite de {ctx.author.display_name} est terminée.")
 
         except Exception as e:
             logger.error(f"Error in visit command: {e}", exc_info=True)
-            await ctx.send("❌ Une erreur s'est produite lors de la visite.")
+            await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='plead', aliases=['plaider', 'supplier'])
     async def plead_command(self, ctx, *, plea_text: str):
@@ -2034,26 +2277,29 @@ class Commands(commands.Cog):
 
     @commands.command(name='profil', aliases=['profile', 'me', 'stats'])
     async def profil_command(self, ctx, member: discord.Member = None):
-        """Voir ton profil Thugz complet / View your full Thugz profile"""
+        """Profil Thugz complet avec historique, stats, taux de criminalité et analyse"""
         try:
             target = member or ctx.author
             user_id = str(target.id)
             data = self.points.get_user_data(user_id)
             points = int(data.get('points', 0))
-
-            # Stats from DB
             db = self.points.db
-            crimes_count = 0
-            prison_count = 0
-            
-            # Get daily usage stats for crime counting
-            try:
-                crimes_count = db.get_daily_usage(user_id, 'steal') + db.get_daily_usage(user_id, 'heist')
-                prison_count = db.get_daily_usage(user_id, 'prisonwork')
-            except Exception:
-                pass
 
-            # Gang info
+            # ── Historique depuis point_transactions ──
+            stats = await self._get_user_history(user_id)
+            total = max(1, stats.get('total_actions', 1))
+            crimes = stats.get('crimes', 0)
+            work_count = stats.get('work', 0)
+            prison_count = stats.get('prison', 0)
+            deals = stats.get('deals', 0)
+            gambling = stats.get('gambling', 0)
+            ken_count = stats.get('ken', 0)
+            wesh_count = stats.get('wesh', 0)
+
+            # Taux de criminalité (% d'actions criminelles)
+            crime_rate = int((crimes + deals) / total * 100) if total > 0 else 0
+
+            # Gang
             gang_name = "Aucun"
             try:
                 gang_id = db.get_user_gang(user_id)
@@ -2064,15 +2310,14 @@ class Commands(commands.Cog):
             except Exception:
                 pass
 
-            # Prison status
-            prison_status = await self.points.get_prison_status(user_id)
-            is_imprisoned = prison_status.get('is_imprisoned', False)
-
-            # Generate gangster nickname based on stats
-            nickname = self._generate_nickname(points, crimes_count, prison_count, is_imprisoned)
+            # Prison
+            prison_role = discord.utils.get(ctx.guild.roles, name=PRISON_DISCORD.get("role_name", "🔒 Prisonnier"))
+            is_imprisoned = prison_role and prison_role in target.roles
 
             # Wealth tier
-            if points >= 100000:
+            if points < 0:
+                wealth = "💀 Endetté"
+            elif points >= 100000:
                 wealth = "💎 Milliardaire du Ghetto"
             elif points >= 50000:
                 wealth = "🏆 Parrain"
@@ -2085,29 +2330,79 @@ class Commands(commands.Cog):
             else:
                 wealth = "🗑️ Clochard du quartier"
 
+            # Nickname
+            nickname = self._generate_nickname(points, crimes, prison_count, is_imprisoned)
+
+            # ── Analyse de personnalité ──
+            analyses = []
+            if crime_rate > 60:
+                analyses.append("Un vrai danger public. Les flics ont son poster dans tous les commissariats.")
+            elif crime_rate > 30:
+                analyses.append("Penche clairement du mauvais côté de la loi.")
+            elif crime_rate > 10:
+                analyses.append("Fait quelques coups en douce mais reste discret.")
+            else:
+                analyses.append("Un citoyen presque modèle... presque.")
+
+            if work_count > 10:
+                analyses.append("Travailleur acharné malgré les tentations.")
+            if prison_count > 3:
+                analyses.append("Abonné au service pénitentiaire.")
+            if deals > 5:
+                analyses.append("Dealer confirmé — son numéro tourne dans tout le quartier.")
+            if ken_count > 3:
+                analyses.append("Dragueur invétéré. Les gens le fuient au bar.")
+            if gambling > 10:
+                analyses.append("Accro aux jeux. Les casinos lui envoient des cartes de fidélité.")
+            if wesh_count > 5:
+                analyses.append("Le destin s'acharne sur lui. Ou c'est lui qui s'acharne sur le destin.")
+            if points < 0:
+                analyses.append("Endetté jusqu'au cou. Même les huissiers ont pitié.")
+
+            analysis_text = " ".join(analyses[:3]) if analyses else "Pas assez d'historique pour faire une analyse."
+
+            # ── BUILD EMBED ──
             embed = discord.Embed(
                 title=f"👤 Profil de {target.display_name}",
-                description=f"*\"{nickname}\"*",
-                color=0xFF4500
+                description=f"*\"{nickname}\"*\n\n📝 {analysis_text}",
+                color=0xFF0000 if points < 0 else 0xFF4500
             )
             embed.set_thumbnail(url=target.display_avatar.url)
+
             embed.add_field(name="💰 Richesse", value=f"**{points:,}** 💵\n{wealth}", inline=True)
             embed.add_field(name="🔫 Gang", value=gang_name, inline=True)
 
             if is_imprisoned:
-                remaining = prison_status.get('prison_time_remaining', 0)
-                mins = remaining // 60
-                embed.add_field(name="🏢 Prison", value=f"⛓️ Enfermé ({mins}min restantes)", inline=True)
+                release_time = self.points.database.get_prison_time(user_id)
+                import time as _time
+                remaining = max(0, int(float(release_time or 0) - _time.time())) if release_time else 0
+                embed.add_field(name="🏢 Prison", value=f"⛓️ Enfermé ({remaining//60}min)", inline=True)
             else:
                 embed.add_field(name="🏢 Prison", value="✅ Libre", inline=True)
 
-            # Inventory
+            # Stats détaillées
+            embed.add_field(name="📊 Statistiques", value=(
+                f"🔨 Travaux: **{work_count}**\n"
+                f"🦹 Crimes: **{crimes}**\n"
+                f"💊 Deals: **{deals}**\n"
+                f"🏢 Passages en prison: **{prison_count}**\n"
+                f"🎰 Paris: **{gambling}**\n"
+                f"🌀 Wesh: **{wesh_count}**\n"
+                f"💋 Ken: **{ken_count}**"
+            ), inline=False)
+
+            # Taux de criminalité
+            crime_bar = "🟥" * (crime_rate // 10) + "⬜" * (10 - crime_rate // 10)
+            embed.add_field(name=f"🚨 Criminalité: {crime_rate}%", value=crime_bar, inline=False)
+
+            # Inventaire
             inv = db.get_inventory(user_id)
             inv_text = ", ".join(inv[:5]) if inv else "Vide"
             if len(inv) > 5:
-                inv_text += f" (+{len(inv)-5} autres)"
+                inv_text += f" (+{len(inv)-5})"
             embed.add_field(name="🎒 Inventaire", value=inv_text, inline=False)
 
+            embed.set_footer(text=f"Total actions: {total} | ID: {user_id}")
             await self._safe_send(ctx, embed=embed)
 
         except Exception as e:
