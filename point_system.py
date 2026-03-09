@@ -204,25 +204,29 @@ class PointSystem:
             logger.error(f"Error setting user points: {e}", exc_info=True)
     
     async def daily_work(self, user_id: str) -> Tuple[bool, str]:
-        """Complete daily work for points"""
+        """Complete work for points. Cooldown is handled by the command decorator."""
         try:
-            now = datetime.now().timestamp()
-            last_work = self.database.get_last_work(user_id)
-            
-            WORK_COOLDOWN = 7200  # 2 hours
-            WORK_MIN_AMOUNT = 100
-            WORK_MAX_AMOUNT = 500
-            
-            if now - last_work < WORK_COOLDOWN:
-                hours = int((WORK_COOLDOWN - (now - last_work)) / 3600)
-                return False, f"⏰ Tu dois attendre encore {hours}h avant de pouvoir travailler à nouveau!"
+            from config import WORK_MIN_AMOUNT, WORK_MAX_AMOUNT
             
             # Random work reward
             amount = random.randint(WORK_MIN_AMOUNT, WORK_MAX_AMOUNT)
-            self.database.add_points(user_id, amount, reason="Daily work")
-            self.database.set_last_work(user_id, now)
             
-            return True, f"Tu as gagné **{amount}** 💵 en travaillant dur! 💼"
+            # Work narrations for variety
+            jobs = [
+                f"💼 Tu as bossé comme serveur et gagné **{amount}** 💵 !",
+                f"🔧 Tu as réparé des bagnoles au garage, **{amount}** 💵 en poche !",
+                f"📦 Tu as livré des colis toute la journée, **{amount}** 💵 gagnés !",
+                f"🧹 Tu as nettoyé le quartier, la mairie te file **{amount}** 💵 !",
+                f"🍕 Tu as livré des pizzas comme un fou, **{amount}** 💵 !",
+                f"🏗️ Tu as fait le maçon sur un chantier, **{amount}** 💵 !",
+                f"🎧 Tu as fait le DJ au bar du coin, **{amount}** 💵 !",
+                f"🚕 Tu as conduit un Uber toute la nuit, **{amount}** 💵 !",
+            ]
+            
+            self.database.add_points(user_id, amount, reason="Work")
+            self.database.set_last_work(user_id, datetime.now().timestamp())
+            
+            return True, random.choice(jobs)
         except Exception as e:
             logger.error(f"Error in daily_work: {e}", exc_info=True)
             return False, "❌ Une erreur s'est produite lors du travail."
@@ -236,11 +240,32 @@ class PointSystem:
             return []
     
     async def get_prison_status(self, user_id: str) -> Dict:
-        """Get user prison status"""
+        """Get user prison status - checks both justice system and legacy tables"""
         try:
-            user_data = self.database.get_user_data(user_id)
-            # Pour l'instant, retourner un dict avec les infos basiques
-            # (prison n'est pas encore implémenté en full)
+            user_id = str(user_id)
+            now = time.time()
+
+            # 1. Check justice system (prison_records table) first
+            if hasattr(self.database, 'get_prison_status'):
+                status = self.database.get_prison_status(user_id)
+                if status:
+                    return {
+                        'is_imprisoned': True,
+                        'prison_time_remaining': status.get('remaining_seconds', 0),
+                        'reason': status.get('reason', 'N/A'),
+                        'release_at': status.get('release_at', None)
+                    }
+
+            # 2. Fallback: legacy prison_times table
+            release_time = self.database.get_prison_time(user_id)
+            if release_time and float(release_time) > now:
+                remaining = int(float(release_time) - now)
+                return {
+                    'is_imprisoned': True,
+                    'prison_time_remaining': remaining,
+                    'reason': 'N/A'
+                }
+
             return {
                 'is_imprisoned': False,
                 'prison_time_remaining': 0,
@@ -487,112 +512,112 @@ class PointSystem:
             logger.error(f"Error in buy_item: {e}", exc_info=True)
             return False, "❌ Une erreur s'est produite lors de l'achat."
 
-        async def do_prison_activity(self, user_id: str, activity_id: str) -> Tuple[bool, str]:
-            """Do a prison activity that reduces remaining prison time (justice-system compatible)."""
-            try:
-                from config import PRISON_ACTIVITIES
-                user_id = str(user_id)
-                activity_id = str(activity_id)
+    async def do_prison_activity(self, user_id: str, activity_id: str) -> Tuple[bool, str]:
+        """Do a prison activity that reduces remaining prison time (justice-system compatible)."""
+        try:
+            from config import PRISON_ACTIVITIES
+            user_id = str(user_id)
+            activity_id = str(activity_id)
 
-                if activity_id not in PRISON_ACTIVITIES:
-                    available = ", ".join([f"`{k}`" for k in PRISON_ACTIVITIES.keys()])
-                    return False, f"❌ Activité inconnue. Disponibles: {available}"
+            if activity_id not in PRISON_ACTIVITIES:
+                available = ", ".join([f"`{k}`" for k in PRISON_ACTIVITIES.keys()])
+                return False, f"❌ Activité inconnue. Disponibles: {available}"
 
-                reduction = int(PRISON_ACTIVITIES[activity_id].get("reduction", 0))
+            reduction = int(PRISON_ACTIVITIES[activity_id].get("reduction", 0))
 
-                # Prefer justice system tables if available
-                if hasattr(self.database, "get_prison_status") and self.database.get_prison_status(user_id):
-                    if not getattr(self.database, "supabase", None) or not self.database.is_connected():
-                        return False, "❌ Base de données indisponible."
+            # Prefer justice system tables if available
+            if hasattr(self.database, "get_prison_status") and self.database.get_prison_status(user_id):
+                if not getattr(self.database, "supabase", None) or not self.database.is_connected():
+                    return False, "❌ Base de données indisponible."
 
-                    # Fetch current release_at and update it
-                    res = self.database.supabase.table("prison_records").select("release_at").eq("user_id", user_id).eq("status", "imprisoned").execute()
-                    if not res.data:
-                        return False, "❌ Tu n'es pas en prison."
-                    from datetime import datetime, timedelta
-                    current_release = datetime.fromisoformat(res.data[0]["release_at"])
-                    new_release = current_release - timedelta(seconds=reduction)
-                    if new_release < datetime.now():
-                        new_release = datetime.now()
-                    self.database.supabase.table("prison_records").update({"release_at": new_release.isoformat()}).eq("user_id", user_id).eq("status", "imprisoned").execute()
-
-                    remaining = int(max(0, (new_release - datetime.now()).total_seconds()))
-                    return True, f"✅ Activité effectuée ! Peine réduite de **{reduction}s**. Temps restant: **{remaining}s**."
-
-                # Fallback legacy prison_times table
-                release_time = self.database.get_prison_time(user_id)
-                now_ts = time.time()
-                if release_time is None or release_time <= now_ts:
+                # Fetch current release_at and update it
+                res = self.database.supabase.table("prison_records").select("release_at").eq("user_id", user_id).eq("status", "imprisoned").execute()
+                if not res.data:
                     return False, "❌ Tu n'es pas en prison."
+                from datetime import datetime, timedelta
+                current_release = datetime.fromisoformat(res.data[0]["release_at"])
+                new_release = current_release - timedelta(seconds=reduction)
+                if new_release < datetime.now():
+                    new_release = datetime.now()
+                self.database.supabase.table("prison_records").update({"release_at": new_release.isoformat()}).eq("user_id", user_id).eq("status", "imprisoned").execute()
 
-                new_release_ts = max(now_ts, float(release_time) - reduction)
-                self.database.set_prison_time(user_id, new_release_ts)
-
-                remaining = int(max(0, new_release_ts - now_ts))
+                remaining = int(max(0, (new_release - datetime.now()).total_seconds()))
                 return True, f"✅ Activité effectuée ! Peine réduite de **{reduction}s**. Temps restant: **{remaining}s**."
-            except Exception as e:
-                logger.error(f"Error in do_prison_activity: {e}", exc_info=True)
-                return False, "❌ Une erreur s'est produite pendant l'activité."
 
-        async def request_trial(self, user_id: str, plea_text: str) -> Tuple[bool, str]:
-            """Create a tribunal vote message. The vote itself is handled in vote_trial."""
-            try:
-                from config import TRIBUNAL_COST, TRIBUNAL_VOTE_DURATION, TRIBUNAL_COOLDOWN
-                user_id = str(user_id)
-                now = int(time.time())
+            # Fallback legacy prison_times table
+            release_time = self.database.get_prison_time(user_id)
+            now_ts = time.time()
+            if release_time is None or release_time <= now_ts:
+                return False, "❌ Tu n'es pas en prison."
 
-                # Must be in prison to request trial (game logic)
-                in_prison = False
-                if hasattr(self.database, "get_prison_status"):
-                    in_prison = self.database.get_prison_status(user_id) is not None
-                if not in_prison:
-                    # fallback legacy
-                    release_time = self.database.get_prison_time(user_id)
-                    in_prison = release_time is not None and release_time > now
+            new_release_ts = max(now_ts, float(release_time) - reduction)
+            self.database.set_prison_time(user_id, new_release_ts)
 
-                if not in_prison:
-                    return False, "❌ Tu n'es pas en prison, donc pas de procès à demander."
+            remaining = int(max(0, new_release_ts - now_ts))
+            return True, f"✅ Activité effectuée ! Peine réduite de **{reduction}s**. Temps restant: **{remaining}s**."
+        except Exception as e:
+            logger.error(f"Error in do_prison_activity: {e}", exc_info=True)
+            return False, "❌ Une erreur s'est produite pendant l'activité."
 
-                # Cooldown managed via bot_state (simple + robust)
-                cooldowns = self._load_state("tribunal_cooldowns", {})
-                last = int(cooldowns.get(user_id, 0))
-                if now - last < TRIBUNAL_COOLDOWN:
-                    remaining = TRIBUNAL_COOLDOWN - (now - last)
-                    minutes = max(1, remaining // 60)
-                    return False, f"⏰ Tu dois attendre encore ~{minutes} min avant de redemander un procès."
+    async def request_trial(self, user_id: str, plea_text: str) -> Tuple[bool, str]:
+        """Create a tribunal vote message. The vote itself is handled in vote_trial."""
+        try:
+            from config import TRIBUNAL_COST, TRIBUNAL_VOTE_DURATION, TRIBUNAL_COOLDOWN
+            user_id = str(user_id)
+            now = int(time.time())
 
-                user_points = int((self.database.get_user_data(user_id) or {}).get("points", 0))
-                if user_points < TRIBUNAL_COST:
-                    return False, f"❌ Il te faut {TRIBUNAL_COST} points pour demander un procès."
+            # Must be in prison to request trial (game logic)
+            in_prison = False
+            if hasattr(self.database, "get_prison_status"):
+                in_prison = self.database.get_prison_status(user_id) is not None
+            if not in_prison:
+                # fallback legacy
+                release_time = self.database.get_prison_time(user_id)
+                in_prison = release_time is not None and release_time > now
 
-                if not self.database.remove_points(user_id, TRIBUNAL_COST):
-                    return False, "❌ Erreur lors du paiement des frais de procès."
+            if not in_prison:
+                return False, "❌ Tu n'es pas en prison, donc pas de procès à demander."
 
-                trials = self._load_state("tribunal_trials", {})
-                trial = {
-                    "defendant_id": user_id,
-                    "plea": plea_text[:500],
-                    "created_at": now,
-                    "ends_at": now + int(TRIBUNAL_VOTE_DURATION),
-                    "yes": [],
-                    "no": []
-                }
-                trials[user_id] = trial
-                self._save_state("tribunal_trials", trials)
+            # Cooldown managed via bot_state (simple + robust)
+            cooldowns = self._load_state("tribunal_cooldowns", {})
+            last = int(cooldowns.get(user_id, 0))
+            if now - last < TRIBUNAL_COOLDOWN:
+                remaining = TRIBUNAL_COOLDOWN - (now - last)
+                minutes = max(1, remaining // 60)
+                return False, f"⏰ Tu dois attendre encore ~{minutes} min avant de redemander un procès."
 
-                cooldowns[user_id] = now
-                self._save_state("tribunal_cooldowns", cooldowns)
+            user_points = int((self.database.get_user_data(user_id) or {}).get("points", 0))
+            if user_points < TRIBUNAL_COST:
+                return False, f"❌ Il te faut {TRIBUNAL_COST} points pour demander un procès."
 
-                minutes = max(1, int(TRIBUNAL_VOTE_DURATION) // 60)
-                msg = (
-                    f"⚖️ **PROCÈS** : <@{user_id}> demande un jugement !\n"
-                    f"📝 **Plaidoyer** : {plea_text}\n\n"
-                    f"Votez avec ✅ (acquitter) ou ❌ (condamner) pendant **{minutes} min**."
-                )
-                return True, msg
-            except Exception as e:
-                logger.error(f"Error in request_trial: {e}", exc_info=True)
-                return False, "❌ Une erreur s'est produite lors de la demande de procès."
+            if not self.database.remove_points(user_id, TRIBUNAL_COST):
+                return False, "❌ Erreur lors du paiement des frais de procès."
+
+            trials = self._load_state("tribunal_trials", {})
+            trial = {
+                "defendant_id": user_id,
+                "plea": plea_text[:500],
+                "created_at": now,
+                "ends_at": now + int(TRIBUNAL_VOTE_DURATION),
+                "yes": [],
+                "no": []
+            }
+            trials[user_id] = trial
+            self._save_state("tribunal_trials", trials)
+
+            cooldowns[user_id] = now
+            self._save_state("tribunal_cooldowns", cooldowns)
+
+            minutes = max(1, int(TRIBUNAL_VOTE_DURATION) // 60)
+            msg = (
+                f"⚖️ **PROCÈS** : <@{user_id}> demande un jugement !\n"
+                f"📝 **Plaidoyer** : {plea_text}\n\n"
+                f"Votez avec ✅ (acquitter) ou ❌ (condamner) pendant **{minutes} min**."
+            )
+            return True, msg
+        except Exception as e:
+            logger.error(f"Error in request_trial: {e}", exc_info=True)
+            return False, "❌ Une erreur s'est produite lors de la demande de procès."
 
     async def vote_trial(self, voter_id: str, defendant_id: str, vote_yes: bool) -> Tuple[bool, str]:
         """Record a vote and decide the outcome when conditions are met."""
