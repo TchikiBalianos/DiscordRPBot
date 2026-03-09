@@ -218,12 +218,12 @@ class Commands(commands.Cog):
             return {}
 
     async def _safe_send(self, ctx, embed=None, content=None):
-        """Envoie un embed, fallback en texte si pas la permission (403)."""
+        """Envoie un embed, fallback en texte si pas la permission (403). Retourne le message."""
         try:
             if embed:
-                await ctx.send(embed=embed, content=content)
+                return await ctx.send(embed=embed, content=content)
             elif content:
-                await ctx.send(content)
+                return await ctx.send(content)
         except discord.errors.Forbidden:
             # Pas la permission d'envoyer des embeds → fallback texte
             fallback = content or ""
@@ -237,7 +237,7 @@ class Commands(commands.Cog):
                 if embed.footer and embed.footer.text:
                     fallback += f"\n_{embed.footer.text}_"
             if fallback:
-                await ctx.send(fallback[:2000])
+                return await ctx.send(fallback[:2000])
             else:
                 await ctx.send("(Le bot n'a pas la permission Embed Links. Demande à un admin de l'activer.)")
 
@@ -358,6 +358,15 @@ class Commands(commands.Cog):
                 ],
                 "👤 Profil": [
                     ("`!profil [@user]`", "Profil complet + surnom gangster", None),
+                ],
+                "💀 Galère / Dettes": [
+                    ("`!vendrecul`", "Vendre son corps pour survivre...", "30min cd, 5x/jour"),
+                    ("`!vendreslip`", "Vendre ton slip (oui oui)", "20min cd, 5x/jour"),
+                    ("`!vendredigite`", "Vendre ta dignité", "15min cd, 8x/jour"),
+                    ("`!pret @user <montant>`", "Demander un prêt", "1h cd, 3x/jour"),
+                    ("`!rembourser @user <montant>`", "Récupérer ton prêt (à tout moment)", None),
+                    ("`!dette`", "Voir tes dettes", None),
+                    ("`!faillite`", "Déclarer faillite (reset total)", None),
                 ],
                 "📌 Divers": [
                     ("`!ping`", "Tester si le bot répond", None),
@@ -3105,3 +3114,426 @@ class Commands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in loto: {e}", exc_info=True)
             await ctx.send("❌ Le ticket était défectueux.")
+
+    # ══════════════════════════════════════════════════════════════
+    # ══  COMMANDES DE GALÈRE — QUAND T'ES FAUCHÉ / EN NÉGATIF  ══
+    # ══════════════════════════════════════════════════════════════
+
+    # ── !VENDRECUL — Désespoir total ──
+
+    @commands.command(name='vendrecul', aliases=['prostitution', 'trottoir', 'tapin'])
+    @check_cooldown_and_limit('vendrecul')
+    async def vendrecul_command(self, ctx):
+        """Vendre son corps pour survivre... C'est la dèche totale."""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            await ctx.send(f"🚶 {name} arpente les rues sombres du quartier à la recherche de clients...")
+            await asyncio.sleep(2)
+
+            scenarios = [
+                (f"💋 Un businessman en Audi s'arrête. \"Monte.\" Tu montes. "
+                 f"Il te dépose 3 rues plus loin : il voulait juste de la compagnie pour pas se perdre. "
+                 f"Il te file **{{gain}}** 💵 pour le GPS humain.", 50, 200),
+                (f"👠 Tu fais ton plus beau déhanché au feu rouge. Un bus entier de touristes "
+                 f"te prend en photo. Un d'eux te lance **{{gain}}** 💵 par la fenêtre. Humiliant mais rentable.", 100, 400),
+                (f"😬 Tu abordes un mec louche. C'était un flic en civil. "
+                 f"Il te laisse partir mais te prend **{{loss}}** 💵 d'amende. La honte.", -100, -300),
+                (f"🌧️ Il pleut. Personne s'arrête. Tu rentres trempé(e) et bredouille. "
+                 f"Par contre tu chopes un rhume. **{{loss}}** 💵 de pharmacie.", -50, -150),
+                (f"🚗 Jackpot ! Un client généreux qui a eu pitié de toi te file **{{gain}}** 💵. "
+                 f"\"Achète-toi des vêtements, t'as l'air misérable.\" Sympa... je crois.", 200, 600),
+                (f"🐕 Un chien errant te suit pendant 2h. Pas de client. "
+                 f"Par contre le chien est mignon. Tu gagnes un ami mais **0** 💵.", 0, 0),
+                (f"🎭 Tu rencontres un réalisateur qui te propose un rôle dans son film. "
+                 f"C'est un film étudiant. Il te paye **{{gain}}** 💵 en tickets restaurant.", 30, 150),
+                (f"👵 Une mamie te donne **{{gain}}** 💵 en pensant que t'es SDF. "
+                 f"\"Pauvre petit(e)...\" T'es pas SDF mais t'as pris les thunes quand même.", 80, 250),
+            ]
+
+            text, val_min, val_max = random.choice(scenarios)
+            if val_min < 0:
+                amount = random.randint(val_min, val_max)
+                self.points.add_points(user_id, amount, "Vente de cul (amende)")
+                await ctx.send(text.format(loss=abs(amount)))
+            elif val_max > 0:
+                amount = random.randint(val_min, val_max)
+                self.points.add_points(user_id, amount, "Vente de cul")
+                await ctx.send(text.format(gain=amount))
+            else:
+                await ctx.send(text)
+
+            new_pts = int(self.points.get_user_data(user_id).get('points', 0))
+            await ctx.send(f"🏦 Solde : **{new_pts:,}** 💵")
+
+        except Exception as e:
+            logger.error(f"Error in vendrecul: {e}", exc_info=True)
+            await ctx.send("❌ Même ça, ça bug.")
+
+    # ── !VENDRESLIP — La loose absolue ──
+
+    @commands.command(name='vendreslip', aliases=['slip', 'vendresousvetement', 'calecon'])
+    @check_cooldown_and_limit('vendreslip')
+    async def vendreslip_command(self, ctx):
+        """Vendre ton slip. Oui. T'en es là."""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            scenarios = [
+                (f"🩲 {name} retire son slip et le propose à un passant.\n"
+                 f"\"Euh... non merci.\" Personne n'en veut. T'as juste perdu un slip.\n"
+                 f"Gain: **0** 💵. Dignité restante: 0.", 0),
+                (f"🩲 {name} met son slip en vente sur Leboncoin.\n"
+                 f"Un fétichiste l'achète pour **{{gain}}** 💵 !\n"
+                 f"Tu sais pas si tu dois être content ou dégoûté.", 80),
+                (f"🩲 {name} tente de vendre son slip devant le Monoprix.\n"
+                 f"Le vigile le jette dehors. Un SDF lui donne **{{gain}}** 💵 par pitié.", 15),
+                (f"🩲 {name} essaie de vendre son slip comme \"collector\".\n"
+                 f"Un touriste croit que c'est de l'art contemporain et paye **{{gain}}** 💵 !", 200),
+                (f"🩲 {name} vend son slip sur eBay comme \"porté par une star\".\n"
+                 f"Quelqu'un achète pour **{{gain}}** 💵. L'arnaque du siècle.", 150),
+                (f"🩲 {name} vend son slip... mais le vent l'emporte.\n"
+                 f"Un gamin le ramasse et s'enfuit en riant. **0** 💵 et plus de slip.", 0),
+                (f"🩲 {name} propose son slip dédicacé.\n"
+                 f"\"Dédicacé par qui ?\" — \"Bah... par moi.\" — \"...\" \n"
+                 f"Le mec finit par payer **{{gain}}** 💵 pour que tu t'en ailles.", 40),
+            ]
+
+            text, gain = random.choice(scenarios)
+            if gain > 0:
+                self.points.add_points(user_id, gain, "Vente de slip")
+                await ctx.send(text.format(gain=gain))
+            else:
+                await ctx.send(text)
+
+            new_pts = int(self.points.get_user_data(user_id).get('points', 0))
+            await ctx.send(f"🏦 Solde : **{new_pts:,}** 💵")
+
+        except Exception as e:
+            logger.error(f"Error in vendreslip: {e}", exc_info=True)
+            await ctx.send("❌ Bug de slip.")
+
+    # ── !VENDREDIGITE — Plus rien à perdre ──
+
+    @commands.command(name='vendredigite', aliases=['dignite', 'fierté', 'honneur'])
+    @check_cooldown_and_limit('vendredigite')
+    async def vendredigite_command(self, ctx):
+        """Vendre ta dignité au plus offrant. T'es vraiment au fond du trou."""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            scenarios = [
+                (f"🎪 {name} accepte de se déguiser en poulet géant devant le KFC pour **{{gain}}** 💵.\n"
+                 f"Les enfants pleurent. Les parents filment.", True, 100, 300),
+                (f"📢 {name} crie \"JE SUIS UN LOSER\" en plein centre-ville pour **{{gain}}** 💵.\n"
+                 f"Un mec l'applaudit. Une mamie appelle les pompiers.", True, 150, 400),
+                (f"🍕 {name} mange une pizza trouvée dans une poubelle pour un pari.\n"
+                 f"Il gagne le pari : **{{gain}}** 💵. Il perd : sa dignité et son estomac.", True, 50, 200),
+                (f"🎤 {name} chante du Jul au karaoké pendant 3h d'affilée.\n"
+                 f"Le bar le paye **{{gain}}** 💵 pour qu'il ARRÊTE.", True, 200, 500),
+                (f"🐔 {name} fait le poulet en pleine rue. Littéralement. Avec les bruits.\n"
+                 f"Quelqu'un filme et ça devient viral. Sponsoring de dernière minute : **{{gain}}** 💵 !", True, 300, 800),
+                (f"🧎 {name} se met à genoux au McDo et supplie le manager pour un emploi.\n"
+                 f"Le manager lui donne **{{gain}}** 💵 et lui dit de ne jamais revenir.", True, 80, 250),
+                (f"💇 {name} se rase un sourcil pour un pari.\n"
+                 f"Les gens rient. Un streamer le filme. Gain : **{{gain}}** 💵 et un demi-visage.", True, 100, 350),
+                (f"🙃 {name} essaie de vendre sa dignité mais personne n'en veut.\n"
+                 f"\"Ta dignité vaut rien frère.\" — Un passant philosophe.\n"
+                 f"**0** 💵. Même ta dignité est en négatif.", False, 0, 0),
+            ]
+
+            text, has_gain, gain_min, gain_max = random.choice(scenarios)
+            if has_gain and gain_max > 0:
+                gain = random.randint(gain_min, gain_max)
+                self.points.add_points(user_id, gain, "Vente de dignité")
+                await ctx.send(text.format(gain=gain))
+            else:
+                await ctx.send(text)
+
+            new_pts = int(self.points.get_user_data(user_id).get('points', 0))
+            await ctx.send(f"🏦 Solde : **{new_pts:,}** 💵")
+
+        except Exception as e:
+            logger.error(f"Error in vendredigite: {e}", exc_info=True)
+            await ctx.send("❌ T'as même pas réussi à vendre ta dignité correctement.")
+
+    # ── !PRET — Demander un prêt à quelqu'un ──
+
+    @commands.command(name='pret', aliases=['emprunt', 'emprunter', 'loan'])
+    @check_cooldown_and_limit('pret')
+    async def pret_command(self, ctx, target: discord.Member = None, amount: int = None):
+        """Demander un prêt à quelqu'un. Attention: il peut te reprendre les thunes à tout moment !"""
+        try:
+            if not target or not amount or amount <= 0:
+                await ctx.send("❌ Usage: `!pret @user <montant>` — Ex: `!pret @Max 1000`")
+                return
+            if target.id == ctx.author.id:
+                await ctx.send("🤦 Tu te prêtes de l'argent à toi-même ? T'es vraiment au bout.")
+                return
+            if target.bot:
+                await ctx.send("🤖 Les bots ne font pas crédit.")
+                return
+
+            user_id = str(ctx.author.id)
+            target_id = str(target.id)
+            name = ctx.author.display_name
+            target_name = target.display_name
+
+            # Check que le prêteur a les fonds
+            target_points = int(self.points.get_user_data(target_id).get('points', 0))
+            if target_points < amount:
+                await ctx.send(f"❌ {target_name} n'a que **{target_points:,}** 💵, pas assez pour te prêter {amount:,}.")
+                return
+
+            # Demander confirmation au prêteur
+            embed = discord.Embed(
+                title="💳 Demande de Prêt",
+                description=(
+                    f"**{name}** demande à emprunter **{amount:,}** 💵 à **{target_name}**.\n\n"
+                    f"⚠️ Tu pourras récupérer cet argent à tout moment avec `!rembourser @{name} <montant>`.\n\n"
+                    f"{target.mention}, tu acceptes ?"
+                ),
+                color=0xFFD700
+            )
+            msg = await self._safe_send(ctx, embed=embed)
+            if msg:
+                await msg.add_reaction("✅")
+                await msg.add_reaction("❌")
+
+            def check(reaction, user):
+                return (
+                    user.id == target.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                    and reaction.message.id == msg.id
+                )
+
+            try:
+                reaction, _ = await self.bot.wait_for('reaction_add', check=check, timeout=60)
+            except asyncio.TimeoutError:
+                await ctx.send(f"⏰ {target_name} n'a pas répondu. Prêt refusé.")
+                return
+
+            if str(reaction.emoji) == "❌":
+                refuses = [
+                    f"❌ {target_name} refuse. \"Non frère, j'suis pas la Banque de France.\"",
+                    f"❌ {target_name} te regarde et éclate de rire. Prêt refusé.",
+                    f"❌ {target_name} : \"Avec ta réputation ? Jamais.\"",
+                ]
+                await ctx.send(random.choice(refuses))
+                return
+
+            # Prêt accepté — transférer l'argent
+            self.points.remove_points(target_id, amount)
+            self.points.add_points(user_id, amount, f"Prêt de {target_name}")
+
+            # Enregistrer la dette en DB (bot_state)
+            try:
+                debts = self.points.database.load_bot_state("debts") or {}
+                debt_key = f"{user_id}_{target_id}"
+                current_debt = debts.get(debt_key, 0)
+                debts[debt_key] = current_debt + amount
+                self.points.database.save_bot_state("debts", debts)
+            except Exception:
+                pass  # Si le state fail, le prêt est quand même fait
+
+            await ctx.send(
+                f"✅ **PRÊT ACCORDÉ !** {target_name} prête **{amount:,}** 💵 à {name}.\n"
+                f"💰 {name} : +{amount:,} 💵\n"
+                f"💸 {target_name} : -{amount:,} 💵\n\n"
+                f"⚠️ {target_name} peut récupérer cet argent à tout moment avec `!rembourser @{name} <montant>`"
+            )
+
+        except Exception as e:
+            logger.error(f"Error in pret: {e}", exc_info=True)
+            await ctx.send("❌ Erreur lors du prêt.")
+
+    # ── !REMBOURSER — Récupérer un prêt ──
+
+    @commands.command(name='rembourser', aliases=['reprendre', 'collect', 'recup'])
+    async def rembourser_command(self, ctx, target: discord.Member = None, amount: int = None):
+        """Récupère l'argent que tu as prêté à quelqu'un. Tu peux reprendre ce que tu veux, quand tu veux."""
+        try:
+            if not target or not amount or amount <= 0:
+                await ctx.send("❌ Usage: `!rembourser @user <montant>` — Ex: `!rembourser @Max 500`")
+                return
+
+            user_id = str(ctx.author.id)
+            target_id = str(target.id)
+            name = ctx.author.display_name
+            target_name = target.display_name
+
+            # Vérifier la dette
+            try:
+                debts = self.points.database.load_bot_state("debts") or {}
+            except Exception:
+                debts = {}
+
+            debt_key = f"{target_id}_{user_id}"  # la dette de target envers user
+            current_debt = debts.get(debt_key, 0)
+
+            if current_debt <= 0:
+                await ctx.send(f"❌ {target_name} ne te doit rien.")
+                return
+
+            # On peut reprendre jusqu'au montant de la dette
+            actual_amount = min(amount, current_debt)
+
+            # Reprendre l'argent (même si la cible est en négatif, on s'en fout)
+            self.points.remove_points(target_id, actual_amount)
+            self.points.add_points(user_id, actual_amount, f"Remboursement de {target_name}")
+
+            # Mettre à jour la dette
+            debts[debt_key] = current_debt - actual_amount
+            if debts[debt_key] <= 0:
+                del debts[debt_key]
+            try:
+                self.points.database.save_bot_state("debts", debts)
+            except Exception:
+                pass
+
+            remaining = debts.get(debt_key, 0)
+            await ctx.send(
+                f"💰 **REMBOURSEMENT !** {name} récupère **{actual_amount:,}** 💵 sur {target_name}.\n"
+                f"{'✅ Dette soldée !' if remaining <= 0 else f'📋 {target_name} doit encore **{remaining:,}** 💵.'}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error in rembourser: {e}", exc_info=True)
+            await ctx.send("❌ Erreur lors du remboursement.")
+
+    # ── !DETTE — Voir ses dettes ──
+
+    @commands.command(name='dette', aliases=['dettes', 'debt', 'emprunts'])
+    async def dette_command(self, ctx, member: discord.Member = None):
+        """Voir tes dettes ou celles de quelqu'un"""
+        try:
+            target = member or ctx.author
+            target_id = str(target.id)
+            target_name = target.display_name
+
+            try:
+                debts = self.points.database.load_bot_state("debts") or {}
+            except Exception:
+                debts = {}
+
+            # Dettes que cette personne DOIT (elle a emprunté)
+            owes = []
+            for key, amount in debts.items():
+                parts = key.split("_")
+                if len(parts) == 2 and parts[0] == target_id and amount > 0:
+                    creditor_id = parts[1]
+                    try:
+                        creditor = await ctx.guild.fetch_member(int(creditor_id))
+                        owes.append(f"💸 Doit **{amount:,}** 💵 à {creditor.display_name}")
+                    except Exception:
+                        owes.append(f"💸 Doit **{amount:,}** 💵 à Joueur #{creditor_id[-4:]}")
+
+            # Dettes que d'autres lui DOIVENT (elle a prêté)
+            owed = []
+            for key, amount in debts.items():
+                parts = key.split("_")
+                if len(parts) == 2 and parts[1] == target_id and amount > 0:
+                    debtor_id = parts[0]
+                    try:
+                        debtor = await ctx.guild.fetch_member(int(debtor_id))
+                        owed.append(f"💰 {debtor.display_name} doit **{amount:,}** 💵")
+                    except Exception:
+                        owed.append(f"💰 Joueur #{debtor_id[-4:]} doit **{amount:,}** 💵")
+
+            embed = discord.Embed(
+                title=f"📋 Dettes de {target_name}",
+                color=0xFF0000 if owes else 0x00FF00
+            )
+
+            if owes:
+                embed.add_field(name="🔴 Tu dois", value="\n".join(owes), inline=False)
+            if owed:
+                embed.add_field(name="🟢 On te doit", value="\n".join(owed), inline=False)
+            if not owes and not owed:
+                embed.description = "✅ Aucune dette ! T'es clean."
+
+            points = int(self.points.get_user_data(target_id).get('points', 0))
+            status = "🔴 EN NÉGATIF !" if points < 0 else "🟢 Positif"
+            embed.add_field(name="🏦 Solde actuel", value=f"**{points:,}** 💵 ({status})", inline=False)
+
+            await self._safe_send(ctx, embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in dette: {e}", exc_info=True)
+            await ctx.send("❌ Erreur.")
+
+    # ── !FAILLITE — Quand t'es dans le rouge ──
+
+    @commands.command(name='faillite', aliases=['bankrupt', 'ruine', 'fin'])
+    async def faillite_command(self, ctx):
+        """Déclarer faillite. Remet à 0 mais tu perds TOUT (inventaire + réputation)."""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+            points = int(self.points.get_user_data(user_id).get('points', 0))
+
+            if points >= 0:
+                await ctx.send(f"❌ T'es pas en négatif ({points:,} 💵). Pas besoin de faillite !")
+                return
+
+            await ctx.send(
+                f"⚠️ **FAILLITE** — {name}, tu es à **{points:,}** 💵.\n"
+                f"Si tu déclares faillite:\n"
+                f"• Ton solde revient à **0** 💵\n"
+                f"• Tu perds **TOUT** ton inventaire\n"
+                f"• Tes dettes sont effacées\n\n"
+                f"Réagis avec ✅ pour confirmer ou ❌ pour annuler."
+            )
+
+            msg = await ctx.send("Confirmer la faillite ?")
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+
+            def check(reaction, user):
+                return user.id == ctx.author.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+
+            try:
+                reaction, _ = await self.bot.wait_for('reaction_add', check=check, timeout=30)
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ Faillite annulée.")
+                return
+
+            if str(reaction.emoji) == "❌":
+                await ctx.send("❌ Faillite annulée. Continue à galérer.")
+                return
+
+            # Reset complet
+            # Remettre à 0
+            current = int(self.points.get_user_data(user_id).get('points', 0))
+            if current < 0:
+                self.points.add_points(user_id, abs(current), "Faillite - reset à 0")
+
+            # Vider l'inventaire
+            inv = self.points.db.get_inventory(user_id)
+            for item in inv:
+                self.points.db.remove_item(user_id, item)
+
+            # Effacer les dettes
+            try:
+                debts = self.points.database.load_bot_state("debts") or {}
+                keys_to_remove = [k for k in debts if k.startswith(f"{user_id}_")]
+                for k in keys_to_remove:
+                    del debts[k]
+                self.points.database.save_bot_state("debts", debts)
+            except Exception:
+                pass
+
+            await ctx.send(
+                f"💀 **FAILLITE DÉCLARÉE** — {name} repart de zéro.\n"
+                f"• Solde: **0** 💵\n"
+                f"• Inventaire: vidé\n"
+                f"• Dettes: effacées\n\n"
+                f"Bonne chance pour remonter la pente, frère. 🙏"
+            )
+
+        except Exception as e:
+            logger.error(f"Error in faillite: {e}", exc_info=True)
+            await ctx.send("❌ Erreur.")
