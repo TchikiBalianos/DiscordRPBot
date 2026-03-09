@@ -79,7 +79,14 @@ def check_cooldown_and_limit(command_name):
                     if remaining_cooldown > 0:
                         hours = remaining_cooldown // 3600
                         minutes = (remaining_cooldown % 3600) // 60
-                        await ctx.send(f"⏰ Tu dois attendre encore {hours}h {minutes}m avant de réutiliser cette commande.")
+                        seconds = remaining_cooldown % 60
+                        if hours > 0:
+                            time_str = f"{hours}h {minutes:02d}min"
+                        elif minutes > 0:
+                            time_str = f"{minutes}min {seconds:02d}s"
+                        else:
+                            time_str = f"{seconds}s"
+                        await ctx.send(f"⏰ Reviens dans **{time_str}** pour `!{command_name}` !")
                         return False
             
             # 2. Vérifier la limite quotidienne
@@ -123,6 +130,92 @@ class Commands(commands.Cog):
         logger.info("Commands cog initialized")
         # Log all commands that will be registered
         logger.info(f"Commands being registered: {[method for method in dir(self) if method.endswith('_command')]}")
+
+    # ══════════════════════════════════════════════════════════════
+    # ══  SYSTÈME D'ITEMS — MOTEUR D'EFFETS                     ══
+    # ══════════════════════════════════════════════════════════════
+
+    def _get_item_bonus(self, user_id: str, trigger: str, effect_key: str) -> float:
+        """Calcule le bonus cumulé des items d'un joueur pour un trigger donné.
+        Ex: _get_item_bonus(uid, 'steal', 'rob_bonus') → 0.25 si lockpick + pied_de_biche
+        Ne consomme rien, juste lecture."""
+        try:
+            inv = self.points.db.get_inventory(user_id)
+            if not inv:
+                return 0.0
+            total = 0.0
+            for item_id in set(inv):  # set pour éviter double comptage
+                item_cfg = SHOP_ITEMS.get(item_id)
+                if not item_cfg:
+                    continue
+                triggers = item_cfg.get("triggers", [])
+                if trigger in triggers or "all" in triggers:
+                    total += item_cfg.get("effect", {}).get(effect_key, 0.0)
+            return total
+        except Exception as e:
+            logger.error(f"Error in _get_item_bonus: {e}")
+            return 0.0
+
+    def _has_item_effect(self, user_id: str, trigger: str, effect_key: str) -> bool:
+        """Vérifie si le joueur a un item avec un effet booléen pour ce trigger.
+        Ex: _has_item_effect(uid, 'wesh', 'heal_wesh') → True si potion_soin"""
+        try:
+            inv = self.points.db.get_inventory(user_id)
+            if not inv:
+                return False
+            for item_id in inv:
+                item_cfg = SHOP_ITEMS.get(item_id)
+                if not item_cfg:
+                    continue
+                triggers = item_cfg.get("triggers", [])
+                if trigger in triggers or "all" in triggers:
+                    if item_cfg.get("effect", {}).get(effect_key):
+                        return True
+            return False
+        except Exception as e:
+            logger.error(f"Error in _has_item_effect: {e}")
+            return False
+
+    def _consume_item(self, user_id: str, trigger: str, effect_key: str) -> str:
+        """Consomme (retire) le premier item consommable qui match le trigger+effect.
+        Retourne le nom de l'item consommé, ou '' si rien."""
+        try:
+            inv = self.points.db.get_inventory(user_id)
+            if not inv:
+                return ""
+            for item_id in inv:
+                item_cfg = SHOP_ITEMS.get(item_id)
+                if not item_cfg:
+                    continue
+                if not item_cfg.get("consumable", False):
+                    continue
+                triggers = item_cfg.get("triggers", [])
+                if trigger in triggers or "all" in triggers:
+                    if item_cfg.get("effect", {}).get(effect_key):
+                        self.points.db.remove_item(user_id, item_id)
+                        return item_cfg.get("name", item_id)
+            return ""
+        except Exception as e:
+            logger.error(f"Error in _consume_item: {e}")
+            return ""
+
+    def _find_defense_item(self, user_id: str, trigger: str) -> dict:
+        """Cherche un item défensif chez un joueur. Retourne {item_id, item_cfg} ou {}."""
+        try:
+            inv = self.points.db.get_inventory(user_id)
+            if not inv:
+                return {}
+            for item_id in inv:
+                item_cfg = SHOP_ITEMS.get(item_id)
+                if not item_cfg:
+                    continue
+                triggers = item_cfg.get("triggers", [])
+                if trigger in triggers:
+                    return {"item_id": item_id, "cfg": item_cfg}
+            return {}
+        except Exception as e:
+            logger.error(f"Error in _find_defense_item: {e}")
+            return {}
 
     @commands.command(name='debug')
     @is_bot_owner()
@@ -178,84 +271,131 @@ class Commands(commands.Cog):
             await ctx.send("❌ Une erreur s'est produite.")
 
     @commands.command(name='help', aliases=['commands', 'bothelp', 'aide', 'commandes'])
-    async def help_command(self, ctx):
+    async def help_command(self, ctx, cmd_name: str = None):
         """Show all available commands / Afficher toutes les commandes disponibles"""
         try:
-            embed = discord.Embed(
-                title="🦹 Commandes du Thugz Bot",
-                description="Voici toutes les commandes disponibles:",
-                color=discord.Color.blue()
-            )
+            if cmd_name:
+                return await self._help_single(ctx, cmd_name)
 
-            # Define command categories with descriptions
-            commands_list = {
-                "💰 Économie": {
-                    "!work": "Travailler pour gagner des points (1x par jour)",
-                    "!points": "Voir ton solde de points",
-                    "!leaderboard": "Voir le classement mensuel",
-                    "!shop": "Voir les objets disponibles à la vente",
-                    "!inventory": "Voir ton inventaire",
-                    "!trade @user <item_id>": "Propose un échange d’objet à un autre joueur"
-                },
-                "🦹 Actions Spéciales": {
-                    "!steal @user": "Voler quelqu'un (4h cooldown, 5x/jour) [NOUVEAU]",
-                    "!rob @user": "Voler (alias de !steal, compatibilité)",
-                    "!revenge": "Se venger de son dernier voleur (1x par jour)",
-                    "!heist": "Commencer un braquage (2x par jour)",
-                    "!joinheist": "Rejoindre un braquage"
-                },
-                "⚔️ Combat": {
-                    "!fight @user [mise]": "Se battre (6h cooldown, 3x/jour) [NOUVEAU]",
-                    "!duel @user <mise>": "Duel d'honneur (12h cooldown, 2x/jour) [NOUVEAU]", 
-                    "!combat @user <mise>": "Combat général (3h cooldown, 5x/jour)",
-                    "!gift @user <montant>": "Donner des points (1h cooldown, 10x/jour) [NOUVEAU]"
-                },
-                "🏢 Prison": {
-                    "!prison": "Voir ton statut en prison",
-                    "!activity": "Voir les activités disponibles",
-                    "!activity <nom>": "Faire une activité en prison",
-                    "!tribunal <plaidoyer>": "Demander un procès"
-                },
-                "🐦 Twitter": {
-                    "!linktwitter": "Lier ton compte Twitter",
-                    "!twitterstats": "Voir tes stats Twitter"
-                },
-                "📌 Divers": {
-                    "!ping": "Tester si le bot répond",
-                    "!help": "Voir cette aide",
-                    "!debug": "Afficher les commandes enregistrées (Staff)"
-                }
+            HELP_DATA = {
+                "💰 Économie": [
+                    ("`!work`", "Travailler pour gagner de l'argent", "2h cooldown, 8x/jour"),
+                    ("`!points [@user]`", "Voir ton solde (ou celui d'un autre)", None),
+                    ("`!leaderboard`", "Classement des plus riches", None),
+                    ("`!shop`", "Afficher la boutique (+ 10 nouveaux items !)", None),
+                    ("`!buy <item>`", "Acheter un objet de la boutique", None),
+                    ("`!inventory`", "Voir ton inventaire d'objets", None),
+                    ("`!trade @user <item>`", "Proposer un échange d'objet", None),
+                    ("`!gift @user <montant>`", "Donner de l'argent", "1h cooldown, 10x/jour"),
+                    ("`!mendier`", "Faire la manche (low risk)", "15min cooldown"),
+                    ("`!fouiller`", "Chercher du cash/items dans les environs", "1h cooldown"),
+                    ("`!loto`", "Acheter un ticket à gratter (100 💵)", "2h cooldown"),
+                ],
+                "🦹 Crimes": [
+                    ("`!steal @user`", "Voler un joueur (risque prison)", "4h cooldown, 5x/jour"),
+                    ("`!pickpocket @user`", "Faire les poches discrètement (petit gain)", "30min cd, 8x/jour"),
+                    ("`!heist`", "Lancer un braquage en groupe", "2x/jour"),
+                    ("`!joinheist`", "Rejoindre un braquage en cours", None),
+                    ("`!carjack`", "Voler une voiture ! (gros risque/gain)", "6h cooldown, 2x/jour"),
+                    ("`!dealer`", "Deal de rue (attention aux stups)", "3h cooldown, 3x/jour"),
+                    ("`!revenge`", "Se venger de ton dernier voleur", "1x/jour"),
+                ],
+                "⚔️ Combat & Embrouilles": [
+                    ("`!fight @user [mise]`", "Se battre avec quelqu'un", "6h cooldown, 3x/jour"),
+                    ("`!duel @user <mise>`", "Duel d'honneur (mise obligatoire)", "12h cooldown, 2x/jour"),
+                    ("`!combat @user <mise>`", "Combat général", "3h cooldown, 5x/jour"),
+                    ("`!insulter @user`", "Clash quelqu'un pour du respect", "20min cooldown, 5x/jour"),
+                ],
+                "🎨 Street Life": [
+                    ("`!wesh`", "🌀 ÉVÉNEMENT RANDOM WTF !! (bons ou mauvais)", "1h cooldown, 3x/jour"),
+                    ("`!graffiti`", "Tagger un mur pour du respect", "45min cooldown, 5x/jour"),
+                    ("`!casino <mise>`", "Jouer au casino du quartier (min 50 💵)", "30min cd, 5x/jour"),
+                    ("`!ken @user [montant]`", "Proposition coquine (PG-13, consentement)", None),
+                ],
+                "🏢 Prison & Justice": [
+                    ("`!prison [@user]`", "Voir ton statut en prison", None),
+                    ("`!activity [nom]`", "Activité en prison (réduit la peine)", None),
+                    ("`!tribunal <plaidoyer>`", "Demander un procès (vote) — 500 💵", None),
+                    ("`!bail [montant]`", "Payer ta caution", "30min cooldown"),
+                    ("`!plead <texte>`", "Plaider ta cause", None),
+                    ("`!prisonwork`", "Bosser en prison", None),
+                    ("`!visit @user <msg>`", "Visiter un prisonnier (100 💵)", "2h cooldown"),
+                    ("`!arrest @user <raison>`", "Arrêter quelqu'un (500 💵)", "1h cooldown"),
+                ],
+                "🔫 Gangs": [
+                    ("`!gang`", "Infos de ton gang", None),
+                    ("`!gang create <nom>`", "Créer un gang", None),
+                    ("`!gang info <nom>`", "Infos sur un gang", None),
+                    ("`!gang alliance`", "Gérer les alliances", None),
+                    ("`!gang territory`", "Gérer les territoires", None),
+                    ("`!gang asset`", "Gérer les actifs", None),
+                    ("`!war`", "Guerres en cours", None),
+                    ("`!territory`", "Carte des territoires", None),
+                ],
+                "👤 Profil": [
+                    ("`!profil [@user]`", "Profil complet + surnom gangster", None),
+                ],
+                "📌 Divers": [
+                    ("`!ping`", "Tester si le bot répond", None),
+                    ("`!help [commande]`", "Afficher cette aide", None),
+                ],
             }
 
-            # Add admin commands if user is bot owner
             if ctx.author.id == OWNER_ID or ctx.author.id in APPROVED_STAFF_IDS:
-                commands_list["⚡ Admin (Owner Only)"] = {
-                    "!addpoints @user montant": "Ajouter des points à un membre",
-                    "!removepoints @user montant": "Retirer des points à un membre"
-                }
+                HELP_DATA["⚡ Admin"] = [
+                    ("`!addpoints @user <montant>`", "Ajouter des points", None),
+                    ("`!removepoints @user <montant>`", "Retirer des points", None),
+                    ("`!resetcooldowns [@user]`", "Reset cooldowns", None),
+                    ("`!additem @user <item>`", "Donner un item", None),
+                    ("`!removeitem @user <item>`", "Retirer un item", None),
+                    ("`!promote @user`", "Promouvoir", None),
+                    ("`!demote @user`", "Rétrograder", None),
+                    ("`!debug`", "Debug", None),
+                ]
 
-            # Add daily limits information
-            limits_info = "📊 Limites quotidiennes:\n" + "\n".join([
-                f"• {cmd.capitalize()}: {limit}x par jour"
-                for cmd, limit in DAILY_LIMITS.items()
-                if limit > 0
-            ])
+            embeds = []
+            title_embed = discord.Embed(
+                title="🦹 Thugz Life — Commandes",
+                description="Tape `!help <commande>` pour les détails.\nAliases FR: `!voler`=`!steal`, `!travail`=`!work`, etc.",
+                color=0xFF4500
+            )
+            embeds.append(title_embed)
 
-            embed.add_field(name="⚠️ Limites", value=limits_info, inline=False)
+            for category, cmds in HELP_DATA.items():
+                lines = []
+                for cmd_syntax, desc, note in cmds:
+                    line = f"{cmd_syntax} — {desc}"
+                    if note:
+                        line += f" *({note})*"
+                    lines.append(line)
+                embed = discord.Embed(title=category, description="\n".join(lines), color=0xFF4500)
+                embeds.append(embed)
 
-            # Add each category to the embed
-            for category, cmds in commands_list.items():
-                embed.add_field(
-                    name=category,
-                    value="\n".join([f"`{cmd}`: {desc}" for cmd, desc in cmds.items()]),
-                    inline=False
-                )
-
-            await ctx.send(embed=embed)
-            logger.info(f"Help command executed successfully for {ctx.author}")
+            for embed in embeds:
+                await ctx.send(embed=embed)
+            logger.info(f"Help command executed for {ctx.author}")
         except Exception as e:
             logger.error(f"Error in help command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
+
+    async def _help_single(self, ctx, cmd_name: str):
+        """Show detailed help for a single command"""
+        cmd = self.bot.get_command(cmd_name)
+        if not cmd:
+            await ctx.send(f"❌ Commande `{cmd_name}` introuvable. Tape `!help` pour la liste.")
+            return
+        embed = discord.Embed(title=f"📖 !{cmd.name}", description=cmd.help or "Pas de description.", color=0xFF4500)
+        if cmd.aliases:
+            embed.add_field(name="Aliases", value=", ".join([f"`!{a}`" for a in cmd.aliases]), inline=False)
+        cooldown_val = COMMAND_COOLDOWNS.get(cmd.name, 0)
+        if cooldown_val > 0:
+            h = cooldown_val // 3600
+            m = (cooldown_val % 3600) // 60
+            embed.add_field(name="⏰ Cooldown", value=f"{h}h {m}min" if h else f"{m}min", inline=True)
+        daily = DAILY_LIMITS.get(cmd.name)
+        if daily:
+            embed.add_field(name="📊 Limite/jour", value=f"{daily}x", inline=True)
+        await ctx.send(embed=embed)
 
     @commands.command(name='points', aliases=['money', 'balance', 'solde', 'argent'])
     async def points_command(self, ctx, member: discord.Member = None):
@@ -283,55 +423,119 @@ class Commands(commands.Cog):
             logger.error(f"Error in work command: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
-    @commands.command(name='steal', aliases=['rob', 'voler', 'cambrioler'])  # steal = nouvelle commande selon brief, rob = alias pour compatibilité
+    @commands.command(name='steal', aliases=['rob', 'voler', 'cambrioler'])
     @check_cooldown_and_limit('steal')
     async def steal_command(self, ctx, target: discord.Member = None):
-        """Steal from another member (TECH Brief: 4h cooldown, max 5x/day) / Voler un autre membre"""
+        """Voler un autre membre — tes items augmentent tes chances, mais la victime peut avoir un gilet !"""
         try:
             if not target:
-                await ctx.send("❌ Mentionne la personne que tu veux voler! Exemple: `!steal @user`")
+                await ctx.send("❌ Mentionne la personne que tu veux voler! `!steal @user`")
                 return
-
             if target.id == ctx.author.id:
                 await ctx.send("❌ Tu ne peux pas te voler toi-même!")
                 return
 
-            # Utiliser les narrations de 'rob' existantes pour compatibilité
-            narration = random.choice(COMMAND_NARRATIONS['rob']).format(
-                user=ctx.author.name,
-                target=target.name
-            )
+            user_id = str(ctx.author.id)
+            target_id = str(target.id)
+            name = ctx.author.display_name
+            target_name = target.display_name
+
+            narration = random.choice(COMMAND_NARRATIONS['rob']).format(user=name, target=target_name)
             await ctx.send(narration)
             await asyncio.sleep(2)
 
-            # Try to rob the target
-            success, amount = await self.points.try_rob(str(ctx.author.id), str(target.id), target.name)
-            
-            # Build the result message
-            if success:
-                # Success messages - multiple variants
-                success_messages = [
-                    f"✅ Le vol réussit! Tu as volé **{amount}** 💵 à {target.name}!",
-                    f"✅ Butin acquis! {target.name} vient de perdre **{amount}** 💵...",
-                    f"✅ Parfait! Tu subtilises **{amount}** 💵 à {target.name}!",
-                    f"✅ C'est fait! {amount} 💵 de {target.name} sont maintenant tiens!",
-                    f"✅ Le coup réussit! {amount} 💵 à {target.name} ont changé de propriétaire!"
+            # ── CHECK ITEMS DÉFENSIFS DE LA VICTIME ──
+            # Kevlar → bloque 100% + envoie voleur en prison
+            defense = self._find_defense_item(target_id, "defense_steal")
+            if defense:
+                d_cfg = defense["cfg"]
+                d_effect = d_cfg.get("effect", {})
+
+                # KEVLAR: full block + prison pour le voleur
+                if d_effect.get("full_block"):
+                    counter_prison = d_effect.get("counter_prison", 1800)
+                    if d_cfg.get("consumable"):
+                        self.points.db.remove_item(target_id, defense["item_id"])
+                    import time as _time
+                    self.points.database.set_prison_time(user_id, _time.time() + counter_prison)
+                    mins = counter_prison // 60
+                    await ctx.send(
+                        f"🛡️💥 **CONTRE-ATTAQUE !** {target_name} portait un **{d_cfg['name']}** !\n"
+                        f"Le vol est bloqué à 100% et TU te retrouves en prison pour **{mins} min** ! 🚔\n"
+                        f"*({d_cfg['name']} consommé)*"
+                    )
+                    return
+
+                # GILET PARE-BALLES: reversal — le vol se retourne contre le voleur
+                reversal = d_effect.get("reversal_chance", 0)
+                if reversal > 0 and random.random() < reversal:
+                    # Le vol se retourne !
+                    steal_amount = random.randint(100, 500)
+                    attacker_points = int(self.points.get_user_points(user_id))
+                    steal_amount = min(steal_amount, attacker_points)
+                    if steal_amount > 0:
+                        self.points.remove_points(user_id, steal_amount)
+                        self.points.add_points(target_id, steal_amount, "Vol retourné (gilet)")
+                    if d_cfg.get("consumable"):
+                        self.points.db.remove_item(target_id, defense["item_id"])
+                    await ctx.send(
+                        f"🦺💥 **RETOURNEMENT !** {target_name} avait un **{d_cfg['name']}** !\n"
+                        f"Le vol se retourne contre toi ! {target_name} te prend **{steal_amount}** 💵 !\n"
+                        f"*({d_cfg['name']} consommé)*"
+                    )
+                    return
+
+            # ── CALCUL DES BONUS D'ATTAQUE ──
+            rob_bonus = self._get_item_bonus(user_id, "steal", "rob_bonus")
+            luck_bonus = self._get_item_bonus(user_id, "steal", "global_luck")
+            total_bonus = rob_bonus + luck_bonus  # ex: 0.15 + 0.10 = 0.25
+
+            # Try to rob (on modifie la chance de succès via les items)
+            success, amount = await self.points.try_rob(user_id, target_id, target_name)
+
+            # Si le vol échoue naturellement, les items offensifs donnent une 2e chance
+            if not success and amount == -3 and total_bonus > 0:
+                if random.random() < total_bonus:
+                    # Les items sauvent le vol !
+                    success = True
+                    amount = random.randint(50, 300)
+                    target_pts = int(self.points.get_user_points(target_id))
+                    amount = min(amount, target_pts)
+                    if amount > 0:
+                        self.points.remove_points(target_id, amount)
+                        self.points.add_points(user_id, amount, f"Vol (item bonus)")
+
+            # ── RÉSULTAT ──
+            if success and amount > 0:
+                item_msg = ""
+                if total_bonus > 0:
+                    item_msg = "\n🔓 *Tes items t'ont aidé !*"
+                msgs = [
+                    f"✅ Vol réussi ! Tu as volé **{amount}** 💵 à {target_name} !{item_msg}",
+                    f"✅ Butin acquis ! {target_name} perd **{amount}** 💵...{item_msg}",
+                    f"✅ Parfait ! **{amount}** 💵 subtilisés à {target_name} !{item_msg}",
                 ]
-                await ctx.send(random.choice(success_messages))
+                await ctx.send(random.choice(msgs))
             else:
-                # Failure messages based on error code
                 if amount == -1:
-                    await ctx.send(f"❌ L'utilisateur n'existe pas dans la base de données.")
+                    await ctx.send("❌ L'utilisateur n'existe pas dans la base de données.")
                 elif amount == -2:
-                    await ctx.send(f"❌ La victime n'a pas assez de points pour valoir le coup!")
+                    await ctx.send("❌ La victime n'a pas assez de points pour valoir le coup!")
                 elif amount == -3:
-                    failure_messages = [
-                        f"❌ Le vol a échoué! {target.name} s'est défendu avec succès!",
-                        f"❌ Raté! {target.name} a senti venir le coup et s'est évité...",
-                        f"❌ Mauvaise chance! {target.name} te repère et t'échappe...",
-                        f"❌ Échec total! {target.name} était sur ses gardes..."
-                    ]
-                    await ctx.send(random.choice(failure_messages))
+                    # Vol échoué — check cagoule (stealth) pour éviter conséquences
+                    stealth = self._get_item_bonus(user_id, "steal", "stealth_on_fail")
+                    if stealth > 0 and random.random() < stealth:
+                        await ctx.send(
+                            f"❌ Le vol a échoué... mais ta 🎭 **Cagoule** t'a permis de fuir sans être identifié !"
+                            f"\nPas de conséquences cette fois."
+                        )
+                    else:
+                        fails = [
+                            f"❌ Le vol a échoué ! {target_name} s'est défendu !",
+                            f"❌ Raté ! {target_name} a senti le coup venir...",
+                            f"❌ Échec ! {target_name} était sur ses gardes...",
+                        ]
+                        await ctx.send(random.choice(fails))
                 else:
                     await ctx.send("❌ Une erreur s'est produite lors du vol.")
         except Exception as e:
@@ -1782,3 +1986,1087 @@ class Commands(commands.Cog):
                     await message.channel.send(result)
                 except Exception as e:
                     logger.error(f"Error processing trial vote: {e}", exc_info=True)
+    # === COMMANDE PROFIL ===
+
+    @commands.command(name='profil', aliases=['profile', 'me', 'stats'])
+    async def profil_command(self, ctx, member: discord.Member = None):
+        """Voir ton profil Thugz complet / View your full Thugz profile"""
+        try:
+            target = member or ctx.author
+            user_id = str(target.id)
+            data = self.points.get_user_data(user_id)
+            points = int(data.get('points', 0))
+
+            # Stats from DB
+            db = self.points.db
+            crimes_count = 0
+            prison_count = 0
+            
+            # Get daily usage stats for crime counting
+            try:
+                crimes_count = db.get_daily_usage(user_id, 'steal') + db.get_daily_usage(user_id, 'heist')
+                prison_count = db.get_daily_usage(user_id, 'prisonwork')
+            except Exception:
+                pass
+
+            # Gang info
+            gang_name = "Aucun"
+            try:
+                gang_id = db.get_user_gang(user_id)
+                if gang_id:
+                    gang_info = db.get_gang_info(gang_id)
+                    if gang_info:
+                        gang_name = gang_info.get('name', 'Inconnu')
+            except Exception:
+                pass
+
+            # Prison status
+            prison_status = await self.points.get_prison_status(user_id)
+            is_imprisoned = prison_status.get('is_imprisoned', False)
+
+            # Generate gangster nickname based on stats
+            nickname = self._generate_nickname(points, crimes_count, prison_count, is_imprisoned)
+
+            # Wealth tier
+            if points >= 100000:
+                wealth = "💎 Milliardaire du Ghetto"
+            elif points >= 50000:
+                wealth = "🏆 Parrain"
+            elif points >= 20000:
+                wealth = "💰 Caïd"
+            elif points >= 5000:
+                wealth = "💵 Dealer confirmé"
+            elif points >= 1000:
+                wealth = "🪙 Petit voyou"
+            else:
+                wealth = "🗑️ Clochard du quartier"
+
+            embed = discord.Embed(
+                title=f"👤 Profil de {target.display_name}",
+                description=f"*\"{nickname}\"*",
+                color=0xFF4500
+            )
+            embed.set_thumbnail(url=target.display_avatar.url)
+            embed.add_field(name="💰 Richesse", value=f"**{points:,}** 💵\n{wealth}", inline=True)
+            embed.add_field(name="🔫 Gang", value=gang_name, inline=True)
+
+            if is_imprisoned:
+                remaining = prison_status.get('prison_time_remaining', 0)
+                mins = remaining // 60
+                embed.add_field(name="🏢 Prison", value=f"⛓️ Enfermé ({mins}min restantes)", inline=True)
+            else:
+                embed.add_field(name="🏢 Prison", value="✅ Libre", inline=True)
+
+            # Inventory
+            inv = db.get_inventory(user_id)
+            inv_text = ", ".join(inv[:5]) if inv else "Vide"
+            if len(inv) > 5:
+                inv_text += f" (+{len(inv)-5} autres)"
+            embed.add_field(name="🎒 Inventaire", value=inv_text, inline=False)
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in profil command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    def _generate_nickname(self, points, crimes, prisons, is_imprisoned):
+        """Generate a gangster nickname based on play style"""
+        nicknames_rich = [
+            "Le Banquier du Ghetto", "El Chapo des Banlieues", "Le Loup de la Street",
+            "Midas du Béton", "Le Parrain des Cités", "Roi du Blanchiment"
+        ]
+        nicknames_criminal = [
+            "L'Ombre des Ruelles", "Le Fantôme du 93", "Braqueur Né",
+            "Le Pickpocket Légendaire", "Main de Velours", "L'Homme qui vole des sucettes aux bébés"
+        ]
+        nicknames_prison = [
+            "Vétéran Prisonnier", "L'Éternel Détenu", "Le Roi de la Cour de Promenade",
+            "Abonné Fleury-Mérogis", "Le Connaisseur de Cellules"
+        ]
+        nicknames_broke = [
+            "Le SDF du Serveur", "Celui qui fouille les poubelles", "Le Clodo Magnifique",
+            "N'a même pas de quoi s'acheter un kebab", "Le mendiant professionnel"
+        ]
+        nicknames_new = [
+            "Le Petit Nouveau", "Fresh Off the Block", "Le Bleu du Quartier",
+            "Celui qui comprend pas encore les règles"
+        ]
+
+        import random
+        if is_imprisoned:
+            return random.choice(nicknames_prison)
+        elif points >= 50000:
+            return random.choice(nicknames_rich)
+        elif crimes >= 3:
+            return random.choice(nicknames_criminal)
+        elif points < 100:
+            return random.choice(nicknames_broke)
+        else:
+            return random.choice(nicknames_new)
+
+    # === COMMANDE KEN ===
+
+    @commands.command(name='ken', aliases=['seduire', 'draguer'])
+    async def ken_command(self, ctx, target: discord.Member = None, amount: int = 0):
+        """Proposition coquine (PG-13, consentement requis) / Flirty proposal"""
+        try:
+            if not target:
+                await ctx.send("❌ Mentionne quelqu'un! `!ken @user [montant]`")
+                return
+            if target.id == ctx.author.id:
+                await ctx.send("😐 Tu veux te séduire toi-même ? Achète-toi un miroir.")
+                return
+            if target.bot:
+                await ctx.send("🤖 Les bots n'ont pas de sentiments... pour l'instant.")
+                return
+
+            # Send consent request with buttons
+            embed = discord.Embed(
+                title="💋 Proposition Thugz",
+                description=(
+                    f"**{ctx.author.display_name}** veut tenter sa chance avec **{target.display_name}**"
+                    + (f" et mise **{amount}** 💵 !" if amount > 0 else " !")
+                    + f"\n\n{target.mention}, tu acceptes ?"
+                ),
+                color=0xFF69B4
+            )
+
+            # Use reactions for consent
+            msg = await ctx.send(embed=embed)
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+
+            def check(reaction, user):
+                return (
+                    user.id == target.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                    and reaction.message.id == msg.id
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', check=check, timeout=60)
+            except asyncio.TimeoutError:
+                await ctx.send(f"⏰ {target.display_name} n'a pas répondu... c'est un vent magistral. 💨")
+                return
+
+            if str(reaction.emoji) == "❌":
+                rejections = [
+                    f"💔 {target.display_name} te met un vent cosmique.",
+                    f"🚪 {target.display_name} te claque la porte au nez.",
+                    f"😂 {target.display_name} éclate de rire et s'en va.",
+                    f"👻 {target.display_name} fait semblant de ne pas te connaître.",
+                    f"🗑️ {target.display_name} jette ta proposition à la poubelle.",
+                ]
+                await ctx.send(random.choice(rejections))
+                return
+
+            # Accepted! Generate outcome
+            outcomes = [
+                (f"💕 C'est un match ! {ctx.author.display_name} et {target.display_name} partent ensemble au kebab.", True),
+                (f"🌹 {target.display_name} accepte un café... mais {ctx.author.display_name} renverse tout sur la table.", False),
+                (f"💃 Soirée dansante ! Mais {ctx.author.display_name} se foule la cheville en essayant le moonwalk.", False),
+                (f"🎬 Ciné ensemble ! {ctx.author.display_name} s'endort pendant le film. Romantique.", True),
+                (f"🍕 Pizza à deux ! {ctx.author.display_name} mange 3/4 de la pizza. {target.display_name} n'est pas impressionné(e).", False),
+                (f"🎵 {ctx.author.display_name} chante une sérénade... les voisins appellent la police.", False),
+                (f"✨ Magie ! {ctx.author.display_name} et {target.display_name} deviennent le nouveau couple du serveur !", True),
+                (f"🏖️ Balade au parc... un pigeon attaque {ctx.author.display_name}. {target.display_name} filme.", True),
+            ]
+
+            outcome_text, success = random.choice(outcomes)
+
+            # Handle money if bet was made
+            if amount > 0 and success:
+                user_points = self.points.get_user_points(str(ctx.author.id))
+                if user_points >= amount:
+                    self.points.remove_points(str(ctx.author.id), amount)
+                    self.points.add_points(str(target.id), amount, "Ken gift")
+                    outcome_text += f"\n💵 {ctx.author.display_name} offre **{amount}** 💵 à {target.display_name} !"
+
+            result_embed = discord.Embed(
+                title="💋 Résultat",
+                description=outcome_text,
+                color=0xFF69B4 if success else 0x808080
+            )
+            await ctx.send(embed=result_embed)
+
+        except Exception as e:
+            logger.error(f"Error in ken command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    # ══════════════════════════════════════════════════════════════
+    # ══  NOUVELLES COMMANDES THUGZ LIFE — PHASE 2              ══
+    # ══════════════════════════════════════════════════════════════
+
+    # ── !WESH — ÉVÉNEMENTS RANDOM WTF ──
+
+    @commands.command(name='wesh', aliases=['wtf', 'random', 'destin'])
+    @check_cooldown_and_limit('wesh')
+    async def wesh_command(self, ctx):
+        """Tente ta chance avec le destin de la street ! Événement 100% random et WTF."""
+        try:
+            user_id = str(ctx.author.id)
+            user_data = self.points.get_user_data(user_id)
+            current_points = int(user_data.get('points', 0))
+            name = ctx.author.display_name
+
+            # ── SCÉNARIOS WTF ──
+            # Structure: (texte, type, valeur)
+            #   type: "lose_pct" (perd % points), "lose_flat" (perd montant fixe),
+            #         "gain_flat" (gagne montant), "gain_pct" (gagne % points),
+            #         "prison" (envoyé en prison X secondes), "item" (gagne un item),
+            #         "combo" (combinaison de plusieurs effets)
+            
+            SCENARIOS = [
+                # ══ CATASTROPHES (pertes) ══
+                (
+                    f"🐂 **WESH !** Tu marches tranquille dans la rue quand un taureau s'échappe du Buffalo Grill "
+                    f"et te fonce dessus à pleine vitesse ! Il te rentre ses cornes dans le... AÏEEE !! 🏥\n\n"
+                    f"Tu te retrouves à l'hôpital avec 47 points de suture au fondement. "
+                    f"Tu perds **50%** de tes thunes pour l'hospitalisation et t'es dans l'incapacité totale "
+                    f"de faire quoi que ce soit pendant un moment.",
+                    "combo", {"lose_pct": 50, "prison": 3600, "msg_extra": "💩 Tu ne peux même plus t'asseoir."}
+                ),
+                (
+                    f"🕳️ **WESH !** Tu marches en regardant ton téléphone et tu tombes dans une bouche d'égout "
+                    f"ouverte ! Tu atterris dans 2 mètres de merde littérale. 💀\n\n"
+                    f"Les pompiers mettent 3h à te sortir. Tu perds ta dignité et **40%** de tes points "
+                    f"(nettoyage + antibiotiques).",
+                    "combo", {"lose_pct": 40, "prison": 1800, "msg_extra": "🤢 Tu sens la merde pendant 3 jours."}
+                ),
+                (
+                    f"👵 **WESH !** Une mamie te demande de l'aide pour traverser la route. "
+                    f"Tu l'aides gentiment... et elle te vole ton portefeuille pendant que tu regardes pas ! "
+                    f"Elle sprinte comme Usain Bolt et disparaît dans le métro. 🏃‍♀️💨\n\n"
+                    f"Tu perds **30%** de tes thunes. Braqué par mamie Lucette, 83 ans.",
+                    "lose_pct", 30
+                ),
+                (
+                    f"🚗 **WESH !** Tu te fais renverser par un Uber Eats en vélo qui grille un feu rouge. "
+                    f"Le livreur ramasse ton kebab par terre, le met dans le sac et continue sa livraison. "
+                    f"Toi tu restes au sol. 🍗💀\n\n"
+                    f"Hospitalisation : **-{min(2000, current_points)}** 💵",
+                    "lose_flat", min(2000, current_points)
+                ),
+                (
+                    f"🐦 **WESH !** Un pigeon te chie en plein dans l'œil droit pendant que tu comptais "
+                    f"tes billets devant le Franprix. Tu cries, tu fais tomber ton argent, "
+                    f"et un gamin de 8 ans ramasse tout et s'enfuit en trottinette. 🛴\n\n"
+                    f"Tu perds **25%** de tes points. Le pigeon revient pour le deuxième œil.",
+                    "lose_pct", 25
+                ),
+                (
+                    f"💥 **WESH !** Tu pètes un câble dans un McDo parce qu'ils ont oublié ta sauce. "
+                    f"Tu fais un scandale, le manager appelle les flics, et tu finis au poste "
+                    f"pour \"trouble à l'ordre public\". Pour une sauce barbecue. 🍟🚔",
+                    "combo", {"lose_flat": 500, "prison": 2700, "msg_extra": "🍔 T'as même pas eu ta sauce."}
+                ),
+                (
+                    f"🎰 **WESH !** Tu trouves un ticket à gratter par terre. Tu le grattes... "
+                    f"c'est marqué \"GAGNANT 50 000€\" ! Tu cours au bureau de tabac... "
+                    f"mais le ticket est périmé depuis 2019. Le buraliste se moque de toi "
+                    f"et poste la vidéo sur TikTok. 📱😂\n\n"
+                    f"Tu perds **500** 💵 de honte (tu payes un Uber pour fuir le quartier).",
+                    "lose_flat", 500
+                ),
+                (
+                    f"🦝 **WESH !** Un raton laveur sort de la poubelle et te mord la main ! "
+                    f"Tu vas aux urgences, le médecin te dit \"c'est rien\" mais tu dois "
+                    f"payer **35%** de tes points en frais d'hôpital. En sortant, le raton laveur "
+                    f"t'attend devant la porte. Il a ramené ses potes. 🦝🦝🦝",
+                    "lose_pct", 35
+                ),
+                (
+                    f"🧲 **WESH !** T'essayes de voler un truc à Décathlon mais t'as oublié "
+                    f"l'antivol magnétique. L'alarme sonne, le vigile te plaque au sol "
+                    f"devant 200 personnes. Ta mère était dans le magasin. 😱",
+                    "combo", {"lose_flat": 1000, "prison": 3600, "msg_extra": "📞 Ta daronne t'appelle 47 fois."}
+                ),
+                (
+                    f"🌊 **WESH !** Tu fais le malin au bord de la Seine, tu glisses et tu tombes "
+                    f"dedans. Un touriste japonais te filme et la vidéo fait 2M de vues. "
+                    f"Tu perds **20%** de tes thunes en habits foutus + dignité.",
+                    "lose_pct", 20
+                ),
+
+                # ══ BONNES FORTUNES (gains) ══
+                (
+                    f"💰 **WESH !** Tu trouves un sac Chanel par terre dans le métro ! "
+                    f"Dedans y'a un portefeuille avec du cash. Tu regardes à gauche, "
+                    f"à droite... personne. C'est ton jour de chance, frère ! 🎒✨\n\n"
+                    f"Tu gagnes **3000** 💵 !",
+                    "gain_flat", 3000
+                ),
+                (
+                    f"🎵 **WESH !** Tu chantes du Jul dans le métro et les gens kiffent ! "
+                    f"Ils te filent des sous ! Un producteur dans le wagon te donne sa carte ! "
+                    f"(Tu la perdras demain mais aujourd'hui c'est la fête) 🎤\n\n"
+                    f"Tu gagnes **1500** 💵 en pourboires !",
+                    "gain_flat", 1500
+                ),
+                (
+                    f"🐕 **WESH !** Tu sauves un chien qui allait se faire écraser ! "
+                    f"Le proprio c'est un milliardaire ! Il te file un billet de 500€ "
+                    f"et te dit \"Merci, t'es un vrai\". Le chien te lèche la face. 🐶💕\n\n"
+                    f"Tu gagnes **5000** 💵 ! La bonté ça paye !",
+                    "gain_flat", 5000
+                ),
+                (
+                    f"🏆 **WESH !** Tu participes à un concours de bras de fer dans un bar PMU. "
+                    f"Tu éclates TOUT LE MONDE. Le patron du bar te donne le jackpot "
+                    f"et t'offre un kebab gratuit à vie (enfin, pour la semaine). 💪\n\n"
+                    f"Tu gagnes **2500** 💵 !",
+                    "gain_flat", 2500
+                ),
+                (
+                    f"🧳 **WESH !** Tu croises un dealer qui se fait courser par les keufs. "
+                    f"Il te lance sa sacoche en courant et crie \"GARDE-LA FRÈRE !\". "
+                    f"Dedans y'a du cash. Que du cash. 💼💸\n\n"
+                    f"Tu gagnes **4000** 💵 ! (Fait pas le malin, planque bien).",
+                    "gain_flat", 4000
+                ),
+                (
+                    f"🎰 **WESH !** Le buraliste du coin s'est trompé et t'a donné un ticket "
+                    f"à gratter premium au lieu du Millionnaire. Tu grattes... "
+                    f"**JACKPOT !!** Bon c'est pas 1 million mais c'est déjà ça ! 🎉\n\n"
+                    f"Tu gagnes **50%** de tes points actuels en bonus !",
+                    "gain_pct", 50
+                ),
+                (
+                    f"🍀 **WESH !** Tu trouves un trèfle à quatre feuilles devant le Lidl. "
+                    f"Juste après, tu trouves 50€ par terre. Puis un billet de concert gratuit. "
+                    f"Puis t'apprends que ton PV de stationnement a été annulé. C'est ta journée ! ☘️\n\n"
+                    f"Tu gagnes **2000** 💵 !",
+                    "gain_flat", 2000
+                ),
+
+                # ══ ITEMS GRATUITS ══
+                (
+                    f"🔪 **WESH !** Un mec louche dans une ruelle te donne un couteau "
+                    f"\"cadeau de bienvenue dans le quartier, cousin\". Tu sais pas trop "
+                    f"quoi en penser mais bon, c'est gratuit. 🤷\n\n"
+                    f"Tu obtiens un **Couteau de Rue** !",
+                    "item", "couteau"
+                ),
+                (
+                    f"💊 **WESH !** Tu trouves une boîte de médicaments dans les toilettes "
+                    f"du McDo. C'est des potions de guérison... enfin du Doliprane quoi. "
+                    f"Mais dans le monde Thugz, ça compte ! 💉\n\n"
+                    f"Tu obtiens une **Potion de Guérison** !",
+                    "item", "potion_soin"
+                ),
+                (
+                    f"🎭 **WESH !** Un type déguisé en Spider-Man sur les Champs-Élysées "
+                    f"te file une cagoule. \"Tiens frère, j'en ai trop.\" "
+                    f"Bizarre mais utile pour les braquages. 🕷️\n\n"
+                    f"Tu obtiens une **Cagoule de Braqueur** !",
+                    "item", "cagoule"
+                ),
+                (
+                    f"🧿 **WESH !** Une voyante au marché aux puces te donne une amulette "
+                    f"gratuite. \"Tu en auras besoin, mon fils\", elle dit avec un sourire "
+                    f"flippant. Tu la prends quand même. 🔮\n\n"
+                    f"Tu obtiens une **Amulette de Chance** !",
+                    "item", "amulette"
+                ),
+
+                # ══ SITUATIONS MIXTES ══
+                (
+                    f"🚨 **WESH !** Les flics débarquent dans le bar où tu bois tranquille. "
+                    f"Contrôle d'identité. T'as rien fait mais ils trouvent un vieux PV "
+                    f"impayé de 2022. Direction le poste. Au moins y'a le wifi. 📶\n\n"
+                    f"Tu perds **800** 💵 d'amende et tu fais un tour au poste.",
+                    "combo", {"lose_flat": 800, "prison": 1800, "msg_extra": "🚔 Au moins la cellule est propre."}
+                ),
+                (
+                    f"🐈 **WESH !** Un chat noir traverse devant toi. Tu le suis par curiosité. "
+                    f"Il te mène à un petit sac de cash abandonné dans un buisson ! "
+                    f"MAIS en te relevant tu te prends un poteau en pleine face. 🤕\n\n"
+                    f"Tu gagnes **1000** 💵 mais tu perds **300** 💵 en soins (le nez, quoi).",
+                    "combo", {"gain_flat": 1000, "lose_flat": 300, "msg_extra": "🐱 Le chat t'a regardé avec mépris."}
+                ),
+                (
+                    f"🎪 **WESH !** Tu te fais recruter comme figurant dans un clip de rap ! "
+                    f"Tu danses comme un ouf, le rappeur kiffe, il te file du cash. "
+                    f"Par contre ta danse est devenue un meme viral... 📱😬\n\n"
+                    f"Tu gagnes **2000** 💵 mais tu perds ta dignité (encore).",
+                    "gain_flat", 2000
+                ),
+                (
+                    f"🍕 **WESH !** Tu commandes une pizza. Le livreur se trompe et te "
+                    f"livre 15 pizzas à la place d'une seule. Tu les revends au quartier ! "
+                    f"Par contre Domino's te facture quand même. 🍕🍕🍕\n\n"
+                    f"Tu gagnes **800** 💵 (revente) mais perds **200** 💵 (facture).",
+                    "combo", {"gain_flat": 800, "lose_flat": 200, "msg_extra": "🍕 T'en as gardé une pour toi."}
+                ),
+                (
+                    f"🎤 **WESH !** Tu croises Booba dans la rue. Tu lui demandes un selfie. "
+                    f"Il te regarde de haut en bas et dit \"T'as une tête de thug, toi\". "
+                    f"Il te file un billet et s'en va. Tu planes pendant 3 jours. 🔥\n\n"
+                    f"Tu gagnes **3500** 💵 et un souvenir pour la vie !",
+                    "gain_flat", 3500
+                ),
+                (
+                    f"🗑️ **WESH !** Tu fais les poubelles derrière le Monoprix (la honte) "
+                    f"et tu trouves un iPhone 15 qui marche ! Tu le revends sur Leboncoin "
+                    f"en 10 minutes. La street, c'est aussi du recyclage. ♻️\n\n"
+                    f"Tu gagnes **4500** 💵 !",
+                    "gain_flat", 4500
+                ),
+                (
+                    f"💀 **WESH !** Tu te prends les pieds dans un câble électrique au marché. "
+                    f"Tu fais tomber 3 stands de fruits. Les vendeurs te coursent sur 500m. "
+                    f"T'es rapide mais pas assez. Tu payes les dégâts. 🍎🍊🍋\n\n"
+                    f"Tu perds **1500** 💵 et ta capacité à acheter des fruits ici.",
+                    "lose_flat", 1500
+                ),
+            ]
+
+            # ── Tirer un scénario random ──
+            scenario_text, effect_type, effect_value = random.choice(SCENARIOS)
+
+            # ── CHECK POTION DE GUÉRISON ──
+            is_negative = effect_type in ("lose_pct", "lose_flat", "prison") or (
+                effect_type == "combo" and any(k in effect_value for k in ("lose_pct", "lose_flat", "prison"))
+            )
+            if is_negative and self._has_item_effect(user_id, "wesh", "heal_wesh"):
+                item_name = self._consume_item(user_id, "wesh", "heal_wesh")
+                embed_heal = discord.Embed(
+                    title="💊 POTION DE GUÉRISON ACTIVÉE !",
+                    description=f"{scenario_text}\n\n**MAIS** ta **{item_name}** annule tous les effets negatifs !\nTu t'en sors sans degats. Ouf !\n*({item_name} consommee)*",
+                    color=0x00FF00
+                )
+                await ctx.send(embed=embed_heal)
+                return
+
+            # ── Appliquer les effets ──
+            embed = discord.Embed(
+                title="🌀 WESH — Le Destin Frappe !",
+                description=scenario_text,
+                color=0xFF4500
+            )
+            embed.set_footer(text=f"Joueur: {name}")
+
+            result_lines = []
+
+            if effect_type == "lose_pct":
+                loss = int(current_points * effect_value / 100)
+                if loss > 0:
+                    self.points.remove_points(user_id, loss)
+                    result_lines.append(f"💸 Tu perds **{loss:,}** 💵 ({effect_value}%)")
+
+            elif effect_type == "lose_flat":
+                loss = min(int(effect_value), current_points)
+                if loss > 0:
+                    self.points.remove_points(user_id, loss)
+                    result_lines.append(f"💸 Tu perds **{loss:,}** 💵")
+
+            elif effect_type == "gain_flat":
+                gain = int(effect_value)
+                self.points.add_points(user_id, gain, "Wesh event")
+                result_lines.append(f"💰 Tu gagnes **{gain:,}** 💵 !")
+
+            elif effect_type == "gain_pct":
+                gain = int(current_points * effect_value / 100)
+                if gain > 0:
+                    self.points.add_points(user_id, gain, "Wesh event")
+                    result_lines.append(f"💰 Tu gagnes **{gain:,}** 💵 ({effect_value}% bonus) !")
+
+            elif effect_type == "prison":
+                duration = int(effect_value)
+                import time as _time
+                self.points.database.set_prison_time(user_id, _time.time() + duration)
+                mins = duration // 60
+                result_lines.append(f"⛓️ Tu es enfermé pour **{mins} minutes** !")
+
+            elif effect_type == "item":
+                item_id = str(effect_value)
+                self.points.database.add_item(user_id, item_id)
+                from config import SHOP_ITEMS
+                item_name = SHOP_ITEMS.get(item_id, {}).get('name', item_id)
+                result_lines.append(f"🎁 Tu obtiens : **{item_name}** !")
+
+            elif effect_type == "combo":
+                vals = effect_value
+                if "lose_pct" in vals:
+                    loss = int(current_points * vals["lose_pct"] / 100)
+                    if loss > 0:
+                        self.points.remove_points(user_id, loss)
+                        result_lines.append(f"💸 Perdu **{loss:,}** 💵 ({vals['lose_pct']}%)")
+                if "lose_flat" in vals:
+                    loss = min(int(vals["lose_flat"]), current_points)
+                    if loss > 0:
+                        self.points.remove_points(user_id, loss)
+                        result_lines.append(f"💸 Perdu **{loss:,}** 💵")
+                if "gain_flat" in vals:
+                    gain = int(vals["gain_flat"])
+                    self.points.add_points(user_id, gain, "Wesh event")
+                    result_lines.append(f"💰 Gagné **{gain:,}** 💵")
+                if "prison" in vals:
+                    duration = int(vals["prison"])
+                    import time as _time
+                    self.points.database.set_prison_time(user_id, _time.time() + duration)
+                    mins = duration // 60
+                    result_lines.append(f"⛓️ Enfermé **{mins} min** !")
+                if "item" in vals:
+                    self.points.database.add_item(user_id, str(vals["item"]))
+                    result_lines.append(f"🎁 Item obtenu !")
+                if "msg_extra" in vals:
+                    result_lines.append(vals["msg_extra"])
+
+            # Ajouter le résumé
+            new_points = int(self.points.get_user_data(user_id).get('points', 0))
+            result_lines.append(f"\n🏦 Solde actuel: **{new_points:,}** 💵")
+            embed.add_field(name="📊 Bilan", value="\n".join(result_lines), inline=False)
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in wesh command: {e}", exc_info=True)
+            await ctx.send("❌ Wesh, y'a eu un bug.")
+
+    # ── !PICKPOCKET — VOL RAPIDE PETIT GAIN ──
+
+    @commands.command(name='pickpocket', aliases=['pp', 'chourrer', 'piquer'])
+    @check_cooldown_and_limit('pickpocket')
+    async def pickpocket_command(self, ctx, target: discord.Member = None):
+        """Faire les poches de quelqu'un discrètement (petit gain, petit risque)"""
+        try:
+            if not target:
+                await ctx.send("❌ Mentionne ta victime ! `!pickpocket @user`")
+                return
+            if target.id == ctx.author.id:
+                await ctx.send("🤦 Tu fouilles tes propres poches ? Tu trouves un vieux mouchoir.")
+                return
+            if target.bot:
+                await ctx.send("🤖 Les bots n'ont pas de poches.")
+                return
+
+            user_id = str(ctx.author.id)
+            target_id = str(target.id)
+            name = ctx.author.display_name
+            target_name = target.display_name
+
+            intros = [
+                f"🤏 {name} se glisse discrètement derrière {target_name}...",
+                f"👋 {name} fait semblant de serrer la main de {target_name}...",
+                f"🚶 {name} bouscule \"accidentellement\" {target_name} dans le métro...",
+            ]
+            await ctx.send(random.choice(intros))
+            await asyncio.sleep(1.5)
+
+            # Item bonus attaquant (lockpick, amulette)
+            base_rate = 0.55
+            rob_bonus = self._get_item_bonus(user_id, "pickpocket", "rob_bonus")
+            luck_bonus = self._get_item_bonus(user_id, "pickpocket", "global_luck")
+            success_rate = min(0.90, base_rate + rob_bonus + luck_bonus)
+            gain_min, gain_max = 20, 300
+
+            # Check défense victime: spray au poivre
+            defense = self._find_defense_item(target_id, "defense_pickpocket")
+            if defense and random.random() < defense["cfg"].get("effect", {}).get("counter_pickpocket", 0):
+                counter_amt = random.randint(100, 400)
+                attacker_pts = int(self.points.get_user_points(user_id))
+                counter_amt = min(counter_amt, attacker_pts)
+                if counter_amt > 0:
+                    self.points.remove_points(user_id, counter_amt)
+                    self.points.add_points(target_id, counter_amt, "Counter pickpocket (spray)")
+                if defense["cfg"].get("consumable"):
+                    self.points.db.remove_item(target_id, defense["item_id"])
+                await ctx.send(f"🌶️ **SPRAY AU POIVRE !** {target_name} t'asperge en pleine face ! Le pickpocket echoue et tu perds **{counter_amt}** 💵 ! *(Spray au Poivre consomme)*")
+                return
+
+            if random.random() < success_rate:
+                amount = random.randint(gain_min, gain_max)
+                target_points = self.points.get_user_points(target_id)
+                amount = min(amount, target_points)
+                if amount <= 0:
+                    await ctx.send(f"😅 {target_name} est fauché ! Y'a rien à prendre.")
+                    return
+                self.points.remove_points(target_id, amount)
+                self.points.add_points(user_id, amount, f"Pickpocket {target_name}")
+                results = [
+                    f"✅ Tes doigts de fée ont chopé **{amount}** 💵 dans la poche de {target_name} !",
+                    f"✅ Ni vu ni connu ! **{amount}** 💵 subtilisés à {target_name} !",
+                    f"✅ Technique parfaite ! {target_name} n'a rien senti. **{amount}** 💵 pour toi !",
+                ]
+                await ctx.send(random.choice(results))
+            else:
+                fails = [
+                    f"❌ {target_name} te chope la main dans sa poche ! \"EH OH, TU FAIS QUOI LÀ ?!\"",
+                    f"❌ Tu trébuches en essayant et tu tombes sur {target_name}. Très discret.",
+                    f"❌ Y'avait un trou dans sa poche. Tu as juste touché sa cuisse. Malaise. 😬",
+                    f"❌ {target_name} avait un portefeuille-piège avec un ressort. CLAC ! Tes doigts ! 🤕",
+                ]
+                # Petite amende si pris
+                fine = random.randint(50, 200)
+                self.points.remove_points(user_id, min(fine, int(self.points.get_user_points(user_id))))
+                await ctx.send(random.choice(fails) + f"\nTu perds **{fine}** 💵 de honte.")
+
+        except Exception as e:
+            logger.error(f"Error in pickpocket: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    # ── !DEALER — VENTE DE DROGUE ──
+
+    @commands.command(name='dealer', aliases=['deal', 'vendre', 'trafic'])
+    @check_cooldown_and_limit('dealer')
+    async def dealer_command(self, ctx):
+        """Tente un deal de rue. Gros gains possibles mais attention aux flics !"""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            intros = random.choice(COMMAND_NARRATIONS.get('deal', [
+                f"🕶️ {name} attend son contact dans une ruelle sombre..."
+            ])).format(user=name, target="le client")
+            await ctx.send(intros)
+            await asyncio.sleep(2)
+
+            # Résultats possibles
+            roll = random.random()
+
+            # Item effects: flingue augmente le risque police, cagoule réduit
+            police_risk_extra = self._get_item_bonus(user_id, "dealer", "police_risk")
+            stealth_bonus = self._get_item_bonus(user_id, "dealer", "stealth_on_fail")
+            arrest_threshold = max(0.02, 0.10 + police_risk_extra - stealth_bonus)
+
+            if roll < arrest_threshold:  # ~10% — Arrestation (modifié par items)
+                import time as _time
+                prison_time = random.randint(1800, 7200)
+                self.points.database.set_prison_time(user_id, _time.time() + prison_time)
+                fine = random.randint(500, 2000)
+                self.points.remove_points(user_id, min(fine, int(self.points.get_user_points(user_id))))
+                mins = prison_time // 60
+                await ctx.send(
+                    f"🚔 **LES STUPS !** Les flics t'ont chopé en flagrant délit !\n"
+                    f"💸 Amende de **{fine}** 💵 + ⛓️ **{mins} min** de prison !"
+                )
+            elif roll < 0.25:  # 15% — Deal foireux
+                loss = random.randint(200, 800)
+                self.points.remove_points(user_id, min(loss, int(self.points.get_user_points(user_id))))
+                fails = [
+                    f"❌ Le client t'a filé des faux billets ! Tu perds **{loss}** 💵 !",
+                    f"❌ T'as marché sur la marchandise en courant. Perte sèche de **{loss}** 💵.",
+                    f"❌ Un autre dealer t'a piqué ton spot ET ton stock. **-{loss}** 💵.",
+                ]
+                await ctx.send(random.choice(fails))
+            elif roll < 0.55:  # 30% — Petit deal
+                gain = random.randint(300, 1000)
+                self.points.add_points(user_id, gain, "Deal")
+                await ctx.send(f"✅ Deal rapide et discret. Tu empoche **{gain}** 💵. Ni vu ni connu. 🤫")
+            elif roll < 0.85:  # 30% — Gros deal
+                gain = random.randint(1500, 4000)
+                self.points.add_points(user_id, gain, "Gros deal")
+                await ctx.send(
+                    f"💰 **GROS DEAL !** Le client était un vrai, il a tout pris d'un coup !\n"
+                    f"Tu empoche **{gain}** 💵 ! Pas mal pour une soirée. 🤑"
+                )
+            else:  # 15% — JACKPOT
+                gain = random.randint(5000, 10000)
+                self.points.add_points(user_id, gain, "Deal jackpot")
+                await ctx.send(
+                    f"🌟 **JACKPOT DEALER !** T'as écoulé tout le stock d'un coup à un riche "
+                    f"businessman en Porsche ! Il a même laissé un pourboire !\n"
+                    f"Tu gagnes **{gain}** 💵 !! Le game, c'est toi. 🔥"
+                )
+
+        except Exception as e:
+            logger.error(f"Error in dealer: {e}", exc_info=True)
+            await ctx.send("❌ Le deal a foiré techniquement.")
+
+    # ── !GRAFFITI — TAGGER POUR DE LA REP ──
+
+    @commands.command(name='graffiti', aliases=['tag', 'tagger', 'graff'])
+    @check_cooldown_and_limit('graffiti')
+    async def graffiti_command(self, ctx):
+        """Tague un mur du quartier pour gagner du respect et des thunes"""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            await ctx.send(f"🎨 {name} sort ses bombes de peinture et cherche un mur...")
+            await asyncio.sleep(1.5)
+
+            roll = random.random()
+
+            if roll < 0.15:  # Pris par les flics
+                fine = random.randint(300, 1000)
+                self.points.remove_points(user_id, min(fine, int(self.points.get_user_points(user_id))))
+                await ctx.send(
+                    f"🚔 Les flics t'ont chopé en plein tag ! \"C'est de l'art !\" tu cries "
+                    f"pendant qu'ils te mettent les menottes.\n💸 Amende: **{fine}** 💵"
+                )
+            elif roll < 0.30:  # Tag nul
+                await ctx.send(
+                    f"😐 T'as dessiné un truc... c'est moche. Les gamins du quartier "
+                    f"se moquent de toi. \"C'est censé être quoi ?\" Aucun gain. Aucune dignité."
+                )
+            elif roll < 0.70:  # Bon tag
+                gain = random.randint(200, 800)
+                self.points.add_points(user_id, gain, "Graffiti")
+                tags = [
+                    f"✅ Ton tag \"THUGZ 4 LIFE\" fait sensation ! Les gens prennent des photos. **+{gain}** 💵",
+                    f"✅ Fresque magnifique ! Un galeriste passe et te propose un collab. **+{gain}** 💵",
+                    f"✅ Tag stylé ! Le quartier te respecte. **+{gain}** 💵 de rep street.",
+                ]
+                await ctx.send(random.choice(tags))
+            else:  # Chef-d'œuvre
+                gain = random.randint(1500, 3000)
+                self.points.add_points(user_id, gain, "Graffiti masterpiece")
+                await ctx.send(
+                    f"🌟 **CHEF-D'ŒUVRE !** Ton graff est tellement beau que la mairie "
+                    f"décide de le garder ! Un journaliste te contacte. T'es une star locale !\n"
+                    f"💰 **+{gain}** 💵 !"
+                )
+
+        except Exception as e:
+            logger.error(f"Error in graffiti: {e}", exc_info=True)
+            await ctx.send("❌ La bombe a explosé (pas la bonne).")
+
+    # ── !MENDIER — MENDICITÉ LOW RISK ──
+
+    @commands.command(name='mendier', aliases=['beg', 'quemander', 'manche'])
+    @check_cooldown_and_limit('mendier')
+    async def mendier_command(self, ctx):
+        """Faire la manche dans le quartier. C'est pas glorieux mais ça nourrit."""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            scenarios = [
+                (f"🧎 {name} s'assoit devant le Monoprix avec un carton...\n"
+                 f"Un businessman te file **{{gain}}** 💵 sans te regarder.", 50, 300),
+                (f"🎸 {name} joue de la guitare (mal) dans le métro...\n"
+                 f"Les gens te filent **{{gain}}** 💵 pour que tu t'arrêtes.", 30, 200),
+                (f"😢 {name} raconte une histoire triste à un touriste...\n"
+                 f"Il te donne **{{gain}}** 💵 et un câlin. Émouvant.", 100, 500),
+                (f"🐕 {name} emprunte un chien mignon et fait la manche...\n"
+                 f"Le chien est plus populaire que toi. **{{gain}}** 💵 récoltés.", 80, 400),
+                (f"🤹 {name} essaie de jongler avec des oranges au feu rouge...\n"
+                 f"Un automobiliste mort de rire te lance **{{gain}}** 💵.", 20, 150),
+                (f"😐 {name} tend la main... Un gamin lui donne un bonbon.\n"
+                 f"C'est tout. Pas d'argent. Juste un bonbon à la fraise.", 0, 0),
+                (f"🗣️ {name} fait la manche mais un autre SDF te dit \"C'est MON spot !\"\n"
+                 f"Vous vous battez avec des cartons. Tu perds. **0** 💵.", 0, 0),
+            ]
+
+            scenario_text, gain_min, gain_max = random.choice(scenarios)
+            gain = random.randint(gain_min, gain_max) if gain_max > 0 else 0
+
+            if gain > 0:
+                self.points.add_points(user_id, gain, "Mendicité")
+            await ctx.send(scenario_text.format(gain=gain))
+
+        except Exception as e:
+            logger.error(f"Error in mendier: {e}", exc_info=True)
+            await ctx.send("❌ Même la mendicité bug.")
+
+    # ── !FOUILLER — CHERCHER DES TRUCS ──
+
+    @commands.command(name='fouiller', aliases=['search', 'chercher', 'scav'])
+    @check_cooldown_and_limit('fouiller')
+    async def fouiller_command(self, ctx):
+        """Fouiller les alentours pour trouver de l'argent, des items ou des embrouilles"""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            await ctx.send(f"🔍 {name} fouille les alentours...")
+            await asyncio.sleep(1.5)
+
+            roll = random.random()
+
+            if roll < 0.10:  # Trouve un item
+                items_trouvables = ["couteau", "potion_soin", "bombe_lacrymo", "speed", "pied_de_biche"]
+                item_id = random.choice(items_trouvables)
+                self.points.database.add_item(user_id, item_id)
+                from config import SHOP_ITEMS
+                item_name = SHOP_ITEMS.get(item_id, {}).get("name", item_id)
+                await ctx.send(f"🎁 Tu trouves un objet dans un buisson : **{item_name}** ! Ajouté à ton inventaire.")
+
+            elif roll < 0.35:  # Trouve du cash
+                gain = random.randint(100, 1500)
+                self.points.add_points(user_id, gain, "Fouille")
+                lieux = ["derrière une poubelle", "sous un banc", "dans une bouche d'aération",
+                         "dans un vieux jean abandonné", "sous un plot de chantier"]
+                await ctx.send(f"💰 Tu trouves **{gain}** 💵 {random.choice(lieux)} ! Pas mal !")
+
+            elif roll < 0.55:  # Rien du tout
+                await ctx.send(random.choice([
+                    f"😐 Tu trouves... rien. Juste un vieux préservatif et un ticket de métro périmé.",
+                    f"🦗 Tu fouilles pendant 20 min et tu trouves un grillon mort. Bravo.",
+                    f"🧻 Tu trouves un rouleau de PQ. C'est toujours utile mais ça rapporte 0 💵.",
+                    f"📰 Tu trouves un journal de 2019. L'horoscope disait \"journée favorable\". Menteur.",
+                ]))
+
+            elif roll < 0.75:  # Embrouille
+                loss = random.randint(100, 500)
+                self.points.remove_points(user_id, min(loss, int(self.points.get_user_points(user_id))))
+                await ctx.send(random.choice([
+                    f"🐀 Tu fouilles dans une poubelle et un RAT te mord ! Hôpital. **-{loss}** 💵.",
+                    f"😡 Tu fouilles le sac de quelqu'un... qui était pas abandonné. Son propriétaire "
+                    f"t'a mis une droite. **-{loss}** 💵 en soins.",
+                    f"🕸️ Tu mets ta main dans un trou et tu te fais piquer par une araignée. "
+                    f"**-{loss}** 💵 de pharmacie.",
+                ]))
+            else:  # Trésor
+                gain = random.randint(2000, 5000)
+                self.points.add_points(user_id, gain, "Trésor fouille")
+                await ctx.send(
+                    f"🏆 **TRÉSOR !** Tu trouves une planque oubliée avec du cash dedans !\n"
+                    f"Quelqu'un a dû cacher ça y'a longtemps. C'est à toi maintenant !\n"
+                    f"💰 **+{gain}** 💵 !!"
+                )
+
+        except Exception as e:
+            logger.error(f"Error in fouiller: {e}", exc_info=True)
+            await ctx.send("❌ Erreur pendant la fouille.")
+
+    # ── !CARJACK — VOL DE VOITURE ──
+
+    @commands.command(name='carjack', aliases=['volvoiture', 'jackcar'])
+    @check_cooldown_and_limit('carjack')
+    async def carjack_command(self, ctx):
+        """Tente de voler une voiture ! Gros risque, gros gain."""
+        try:
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+
+            voitures = [
+                ("Twingo cabossée", 200, 500, 0.70),
+                ("Clio de location", 500, 1200, 0.55),
+                ("BMW Série 3", 1500, 3500, 0.40),
+                ("Mercedes AMG", 3000, 7000, 0.30),
+                ("Porsche Cayenne", 5000, 12000, 0.20),
+                ("Lamborghini du dealer", 10000, 25000, 0.10),
+            ]
+
+            voiture_name, gain_min, gain_max, success_rate = random.choice(voitures)
+            await ctx.send(f"🚗 {name} repère une **{voiture_name}** garée dans la rue...")
+            await asyncio.sleep(2)
+
+            # Item bonus (pied de biche, amulette, cagoule)
+            cj_bonus = self._get_item_bonus(user_id, "carjack", "carjack_bonus")
+            luck_bonus = self._get_item_bonus(user_id, "carjack", "global_luck")
+            success_rate = min(0.90, success_rate + cj_bonus + luck_bonus)
+
+            if random.random() < success_rate:
+                gain = random.randint(gain_min, gain_max)
+                self.points.add_points(user_id, gain, f"Carjack {voiture_name}")
+                await ctx.send(
+                    f"✅ **CARJACK RÉUSSI !** Tu démarres la **{voiture_name}** en 10 secondes "
+                    f"et tu files ! Revendue au receleur pour **{gain:,}** 💵 ! 🏎️💨"
+                )
+            else:
+                # Échec — prison ou amende
+                if random.random() < 0.5:
+                    import time as _time
+                    prison_time = random.randint(3600, 10800)
+                    self.points.database.set_prison_time(user_id, _time.time() + prison_time)
+                    mins = prison_time // 60
+                    await ctx.send(
+                        f"🚔 **GRILLÉ !** L'alarme de la **{voiture_name}** s'est déclenchée ! "
+                        f"Les flics t'embarquent direct !\n⛓️ **{mins} min** de prison !"
+                    )
+                else:
+                    fine = random.randint(500, 3000)
+                    self.points.remove_points(user_id, min(fine, int(self.points.get_user_points(user_id))))
+                    fails = [
+                        f"❌ Le proprio de la **{voiture_name}** était dans la voiture. "
+                        f"Il t'a défoncé. **-{fine}** 💵 en soins.",
+                        f"❌ T'as cassé la vitre mais l'antidémarrage t'a bloqué. "
+                        f"Un passant a filmé ta plaque. **-{fine}** 💵 d'amende.",
+                        f"❌ T'as réussi à démarrer mais tu t'es pris un poteau 30m plus loin. "
+                        f"**-{fine}** 💵.",
+                    ]
+                    await ctx.send(random.choice(fails))
+
+        except Exception as e:
+            logger.error(f"Error in carjack: {e}", exc_info=True)
+            await ctx.send("❌ Le moteur a calé (le code aussi).")
+
+    # ── !INSULTER — TRASH TALK POUR DES THUNES ──
+
+    @commands.command(name='insulter', aliases=['clash', 'trashtalk', 'embrouille'])
+    @check_cooldown_and_limit('insulter')
+    async def insulter_command(self, ctx, target: discord.Member = None):
+        """Clash quelqu'un ! Si t'es bon, tu gagnes du respect et des 💵"""
+        try:
+            if not target:
+                await ctx.send("❌ Faut mentionner qui tu veux clasher ! `!insulter @user`")
+                return
+            if target.id == ctx.author.id:
+                await ctx.send("🪞 Tu t'insultes devant le miroir ? C'est triste, frère.")
+                return
+            if target.bot:
+                await ctx.send("🤖 \"01001110 01001111\" — Le bot s'en fout de tes insultes.")
+                return
+
+            user_id = str(ctx.author.id)
+            name = ctx.author.display_name
+            target_name = target.display_name
+
+            # Clashs pré-faits (pas de contenu vraiment méchant, c'est du jeu)
+            clashs = [
+                (f"🗣️ {name} à {target_name}: \"T'es tellement fauché que quand tu vas au "
+                 f"McDo, tu regardes que le menu enfant.\"", True),
+                (f"🗣️ {name} à {target_name}: \"T'es tellement lent que quand tu cours, "
+                 f"les escargots te doublent.\"", True),
+                (f"🗣️ {name} essaie de clasher {target_name}... mais bégaie et dit "
+                 f"\"Tu... tu... euh...\" Tout le monde rigole de TOI.", False),
+                (f"🗣️ {name} à {target_name}: \"Ton style c'est un mix entre Wish et "
+                 f"les vêtements perdus à la piscine.\"", True),
+                (f"🗣️ {name} à {target_name}: \"T'es le genre de personne qui met "
+                 f"du ketchup sur les pâtes carbo.\"", True),
+                (f"🗣️ {name} essaie d'insulter {target_name} mais se mord la langue. "
+                 f"Littéralement. Ça fait mal. 🩸", False),
+                (f"🗣️ {name} à {target_name}: \"Même Google peut pas trouver "
+                 f"quelque chose de bien à dire sur toi.\"", True),
+                (f"🗣️ {name} à {target_name}: \"T'as l'air de quelqu'un qui "
+                 f"applaudit quand l'avion atterrit.\"", True),
+                (f"🗣️ {name} lance un clash mais {target_name} répond encore mieux ! "
+                 f"Public: \"OOOOOOH !\" C'est toi qui te fais humilier.", False),
+            ]
+
+            clash_text, success = random.choice(clashs)
+            await ctx.send(clash_text)
+
+            if success:
+                gain = random.randint(100, 500)
+                self.points.add_points(user_id, gain, f"Clash {target_name}")
+                await ctx.send(f"🏆 Le public est mort de rire ! **+{gain}** 💵 de respect !")
+            else:
+                loss = random.randint(50, 300)
+                self.points.remove_points(user_id, min(loss, int(self.points.get_user_points(user_id))))
+                await ctx.send(f"💀 T'as perdu le clash... **-{loss}** 💵 de dignité.")
+
+        except Exception as e:
+            logger.error(f"Error in insulter: {e}", exc_info=True)
+            await ctx.send("❌ Bug d'embrouille.")
+
+    # ── !CASINO — ROULETTE SIMPLIFIÉE ──
+
+    @commands.command(name='casino', aliases=['roulette_thugz', 'jouer'])
+    @check_cooldown_and_limit('casino')
+    async def casino_command(self, ctx, mise: int = None):
+        """Joue au casino du quartier ! Mise minimum 50 💵"""
+        try:
+            if not mise or mise < 50:
+                await ctx.send("❌ Mise minimum **50** 💵 ! `!casino 200`")
+                return
+            if mise > 10000:
+                await ctx.send("❌ Le casino du quartier accepte max **10 000** 💵 par partie.")
+                return
+
+            user_id = str(ctx.author.id)
+            current = int(self.points.get_user_points(user_id))
+            if current < mise:
+                await ctx.send(f"❌ T'as que **{current:,}** 💵, tu peux pas miser {mise:,} !")
+                return
+
+            name = ctx.author.display_name
+            await ctx.send(f"🎰 {name} entre dans le casino du quartier et mise **{mise:,}** 💵...")
+            await asyncio.sleep(2)
+
+            # Item bonus (amulette = luck, porte_bonheur = double gains)
+            luck_bonus = self._get_item_bonus(user_id, "casino", "global_luck")
+            has_porte_bonheur = self._has_item_effect(user_id, "casino", "double_gambling")
+            roll = random.random()
+            # Amulette: réduit la zone de perte
+            loss_threshold = max(0.15, 0.40 - luck_bonus)
+
+            if roll < loss_threshold:  # ~40% — Perdu (réduit par amulette)
+                self.points.remove_points(user_id, mise)
+                await ctx.send(f"❌ **Perdu !** La bille tombe sur le mauvais numéro. **-{mise:,}** 💵. Le croupier sourit.")
+            elif roll < 0.65:  # 25% — Petite win (x1.5)
+                gain = int(mise * 1.5)
+                if has_porte_bonheur:
+                    gain *= 2
+                    self._consume_item(user_id, "casino", "double_gambling")
+                profit = gain - mise
+                self.points.add_points(user_id, profit, "Casino win")
+                pb_msg = " 🍀 *(Trèfle Porte-Bonheur: gains doublés ! Consommé)*" if has_porte_bonheur else ""
+                await ctx.send(f"✅ Pas mal ! Tu remporte **{gain:,}** 💵 ! (profit: **+{profit:,}** 💵){pb_msg}")
+            elif roll < 0.80:  # 15% — Bonne win (x2)
+                gain = mise * 2
+                profit = gain - mise
+                self.points.add_points(user_id, profit, "Casino big win")
+                await ctx.send(f"🎉 **Double mise !** Tu remporte **{gain:,}** 💵 ! (**+{profit:,}** 💵 !)")
+            elif roll < 0.92:  # 12% — Grosse win (x3)
+                gain = mise * 3
+                profit = gain - mise
+                self.points.add_points(user_id, profit, "Casino huge win")
+                await ctx.send(f"🔥 **TRIPLE !** Le casino pleure ! **{gain:,}** 💵 (**+{profit:,}** 💵) !!")
+            else:  # 8% — JACKPOT (x5)
+                gain = mise * 5
+                profit = gain - mise
+                self.points.add_points(user_id, profit, "Casino jackpot")
+                await ctx.send(
+                    f"🌟💎 **JAAAACKPOT !!!** 🎰🎰🎰\n"
+                    f"TOUT LE CASINO APPLAUDIT ! Tu remporte **{gain:,}** 💵 !!\n"
+                    f"(**+{profit:,}** 💵 de profit !) Le patron du casino veut te bannir. 😤"
+                )
+
+        except Exception as e:
+            logger.error(f"Error in casino: {e}", exc_info=True)
+            await ctx.send("❌ Le casino a fait disjoncter.")
+
+    # ── !LOTO — TICKET DE LOTERIE ──
+
+    @commands.command(name='loto', aliases=['loterie', 'ticket', 'gratter'])
+    @check_cooldown_and_limit('loto')
+    async def loto_command(self, ctx):
+        """Achète un ticket à gratter pour 100 💵. Jackpot possible !"""
+        try:
+            user_id = str(ctx.author.id)
+            ticket_price = 100
+            current = int(self.points.get_user_points(user_id))
+
+            if current < ticket_price:
+                await ctx.send(f"❌ Un ticket coûte **{ticket_price}** 💵 et t'as que **{current}** 💵.")
+                return
+
+            self.points.remove_points(user_id, ticket_price)
+            name = ctx.author.display_name
+
+            await ctx.send(f"🎟️ {name} achète un ticket à gratter et commence à gratter fébrilement...")
+            await asyncio.sleep(2)
+
+            # Item bonus (amulette = luck, porte_bonheur = double)
+            luck_bonus = self._get_item_bonus(user_id, "loto", "global_luck")
+            has_porte_bonheur = self._has_item_effect(user_id, "loto", "double_gambling")
+            roll = random.random()
+            # Amulette réduit la zone perdante
+            lose_threshold = max(0.10, 0.35 - luck_bonus)
+
+            if roll < lose_threshold:  # ~35% — Perdant (réduit par amulette)
+                await ctx.send("❌ Rien... pas un seul symbole aligné. **-100** 💵. Le buraliste rigole.")
+            elif roll < 0.55:  # 20% — Remboursé
+                self.points.add_points(user_id, ticket_price, "Loto remboursement")
+                await ctx.send("😐 Tu récupères ta mise. **100** 💵. C'est comme si t'avais rien fait.")
+            elif roll < 0.75:  # 20% — Petit gain
+                gain = random.randint(200, 500)
+                self.points.add_points(user_id, gain, "Loto petit gain")
+                await ctx.send(f"✅ Pas mal ! Tu gratte et tu gagnes **{gain}** 💵 ! Profit net : **{gain - ticket_price}** 💵")
+            elif roll < 0.90:  # 15% — Bon gain
+                gain = random.randint(1000, 3000)
+                self.points.add_points(user_id, gain, "Loto bon gain")
+                await ctx.send(f"🎉 Beau ticket ! **{gain}** 💵 !! Le buraliste te regarde avec envie.")
+            elif roll < 0.97:  # 7% — Gros gain
+                gain = random.randint(5000, 15000)
+                self.points.add_points(user_id, gain, "Loto gros gain")
+                await ctx.send(f"🔥 **GROS GAIN !!** Tu gagnes **{gain:,}** 💵 ! Les gens dans la file font \"ooooh\" !")
+            else:  # 3% — MEGA JACKPOT
+                gain = random.randint(25000, 50000)
+                self.points.add_points(user_id, gain, "Loto JACKPOT")
+                await ctx.send(
+                    f"💎🎰💎 **JACKPOT LOTO !!!** 🎰💎🎰\n\n"
+                    f"TU GAGNES **{gain:,}** 💵 !!!\n"
+                    f"Le buraliste pleure. Les clients applaudissent. "
+                    f"T'appelles ta daronne pour lui dire que tu l'invites au resto. 🍽️"
+                )
+
+        except Exception as e:
+            logger.error(f"Error in loto: {e}", exc_info=True)
+            await ctx.send("❌ Le ticket était défectueux.")
