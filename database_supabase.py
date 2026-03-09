@@ -379,16 +379,14 @@ class SupabaseDatabase:
             return False
     
     def remove_points(self, user_id: str, points: int) -> bool:
-        """Remove points from user"""
+        """Remove points from user (peut aller en négatif)"""
         try:
             if not self.is_connected():
                 return False
             self._cache_invalidate(f"points:{user_id}")
             current_user = self.get_user_data(user_id)
             
-            if current_user['points'] < points:
-                return False
-            
+            # On autorise le négatif — la dette fait partie du jeu
             new_points = current_user['points'] - points
             self.supabase.table('users').update({
                 'points': new_points,
