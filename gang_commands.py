@@ -1,6 +1,7 @@
 import nextcord as discord
 from nextcord.ext import commands
 import logging
+import asyncio
 from datetime import datetime
 from gang_system import GangSystem, GangRank
 from gang_wars import GangWarSystem, WarType
@@ -33,9 +34,16 @@ class GangCommands(commands.Cog):
                 name="Commandes principales",
                 value="`!gang create <nom> <description>` - Créer un gang\n"
                       "`!gang info` - Informations du gang\n"
-                      "`!gang join <nom>` - Rejoindre un gang\n"
+                      "`!gang list` - Liste des gangs\n"
+                      "`!gang invite @user` - Inviter quelqu'un\n"
+                      "`!gang join` - Accepter une invitation\n"
                       "`!gang leave` - Quitter le gang\n"
-                      "`!gang list` - Liste des gangs",
+                      "`!gang deposit <montant>` - Déposer au coffre\n"
+                      "`!gang kick @user` - Expulser\n"
+                      "`!gang promote @user` - Promouvoir\n"
+                      "`!gang territory` - Territoires\n"
+                      "`!gang alliance` - Alliances\n"
+                      "`!gang disband` - Dissoudre le gang",
                 inline=False
             )
             await ctx.send(embed=embed)
@@ -614,6 +622,147 @@ class GangCommands(commands.Cog):
             
         except Exception as e:
             logger.error(f"Error in gang reputation command: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    # === COMMANDES DE GANG MANQUANTES ===
+
+    @gang.command(name='join', aliases=['rejoindre', 'accepter'])
+    async def gang_join(self, ctx):
+        """Accepter une invitation de gang"""
+        try:
+            success, message = self.gang_system.accept_invitation(str(ctx.author.id))
+            await ctx.send(f"{'✅' if success else '❌'} {message}")
+        except Exception as e:
+            logger.error(f"Error in gang join: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @gang.command(name='leave', aliases=['quitter', 'partir'])
+    async def gang_leave(self, ctx):
+        """Quitter ton gang actuel"""
+        try:
+            success, message = self.gang_system.leave_gang(str(ctx.author.id))
+            await ctx.send(f"{'✅' if success else '❌'} {message}")
+        except Exception as e:
+            logger.error(f"Error in gang leave: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @gang.command(name='list', aliases=['liste', 'tous'])
+    async def gang_list(self, ctx):
+        """Voir tous les gangs du serveur"""
+        try:
+            all_gangs = self.gang_system.get_all_gangs()
+            if not all_gangs:
+                await ctx.send("🏴 Aucun gang n'existe encore. Crée le tien avec `!gang create <nom>` !")
+                return
+
+            embed = discord.Embed(
+                title="🏴‍☠️ Gangs du Serveur",
+                description=f"**{len(all_gangs)}** gangs actifs",
+                color=0x8B0000
+            )
+            for gang_id, gang in list(all_gangs.items())[:10]:
+                members_count = len(gang.get('members', {}))
+                rep = gang.get('reputation', 0)
+                vault = gang.get('vault_points', 0)
+                boss_id = gang.get('boss_id', '?')
+                embed.add_field(
+                    name=f"🔫 {gang.get('name', '?')}",
+                    value=(
+                        f"👑 Chef: <@{boss_id}>\n"
+                        f"👥 Membres: **{members_count}** | 💰 Coffre: **{vault:,}** 💵\n"
+                        f"⭐ Réputation: **{rep}**"
+                    ),
+                    inline=False
+                )
+            await ctx.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error in gang list: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @gang.command(name='invite', aliases=['inviter', 'recruter'])
+    async def gang_invite(self, ctx, target: discord.Member = None):
+        """Inviter quelqu'un dans ton gang (Chef/Lieutenant seulement)"""
+        try:
+            if not target:
+                await ctx.send("❌ Usage: `!gang invite @user`")
+                return
+            if target.bot:
+                await ctx.send("❌ Les bots ne rejoignent pas les gangs.")
+                return
+            success, message = self.gang_system.invite_member(str(ctx.author.id), str(target.id))
+            if success:
+                await ctx.send(f"✅ {message}\n{target.mention}, tape `!gang join` pour accepter !")
+            else:
+                await ctx.send(f"❌ {message}")
+        except Exception as e:
+            logger.error(f"Error in gang invite: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @gang.command(name='kick', aliases=['expulser', 'virer'])
+    async def gang_kick(self, ctx, target: discord.Member = None):
+        """Expulser un membre du gang (Chef/Lieutenant)"""
+        try:
+            if not target:
+                await ctx.send("❌ Usage: `!gang kick @user`")
+                return
+            success, message = self.gang_system.kick_member(str(ctx.author.id), str(target.id))
+            await ctx.send(f"{'✅' if success else '❌'} {message}")
+        except Exception as e:
+            logger.error(f"Error in gang kick: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @gang.command(name='promote', aliases=['promouvoir'])
+    async def gang_promote_member(self, ctx, target: discord.Member = None):
+        """Promouvoir un membre de ton gang (Chef seulement)"""
+        try:
+            if not target:
+                await ctx.send("❌ Usage: `!gang promote @user`")
+                return
+            success, message = self.gang_system.promote_member(str(ctx.author.id), str(target.id))
+            await ctx.send(f"{'✅' if success else '❌'} {message}")
+        except Exception as e:
+            logger.error(f"Error in gang promote: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @gang.command(name='deposit', aliases=['deposer', 'coffre', 'vault'])
+    async def gang_deposit(self, ctx, amount: int = None):
+        """Déposer de l'argent dans le coffre du gang"""
+        try:
+            if not amount or amount <= 0:
+                await ctx.send("❌ Usage: `!gang deposit <montant>`")
+                return
+            success, message = self.gang_system.contribute_to_vault(str(ctx.author.id), amount)
+            await ctx.send(f"{'✅' if success else '❌'} {message}")
+        except Exception as e:
+            logger.error(f"Error in gang deposit: {e}", exc_info=True)
+            await ctx.send("❌ Une erreur s'est produite.")
+
+    @gang.command(name='disband', aliases=['dissoudre', 'supprimer'])
+    async def gang_disband(self, ctx):
+        """Dissoudre ton gang (Chef seulement, IRRÉVERSIBLE)"""
+        try:
+            await ctx.send("⚠️ **ATTENTION** — Dissoudre le gang est IRRÉVERSIBLE. Tout sera perdu (coffre, territoires, réputation). Réagis ✅ pour confirmer.")
+            msg = await ctx.send("Confirmer la dissolution ?")
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+
+            def check(reaction, user):
+                return user.id == ctx.author.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+
+            try:
+                reaction, _ = await self.bot.wait_for('reaction_add', check=check, timeout=30)
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ Dissolution annulée.")
+                return
+
+            if str(reaction.emoji) == "❌":
+                await ctx.send("❌ Dissolution annulée.")
+                return
+
+            success, message = self.gang_system.disband_gang(str(ctx.author.id))
+            await ctx.send(f"{'💀' if success else '❌'} {message}")
+        except Exception as e:
+            logger.error(f"Error in gang disband: {e}", exc_info=True)
             await ctx.send("❌ Une erreur s'est produite.")
 
 async def setup(bot):
