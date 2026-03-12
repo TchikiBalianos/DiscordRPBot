@@ -221,6 +221,22 @@ class PointSystem:
                 f"🏗️ Tu as fait le maçon sur un chantier, **{amount}** 💵 !",
                 f"🎧 Tu as fait le DJ au bar du coin, **{amount}** 💵 !",
                 f"🚕 Tu as conduit un Uber toute la nuit, **{amount}** 💵 !",
+                f"🧑‍🍳 Tu as cuisiné des tacos dans un food truck, **{amount}** 💵 !",
+                f"📸 Tu as fait le photographe pour un mariage, **{amount}** 💵 !",
+                f"🐕 Tu as promené 8 chiens en même temps. Chaos total mais **{amount}** 💵 !",
+                f"🎬 Tu as fait figurant dans une pub Lidl, **{amount}** 💵 et un pack de lait gratuit !",
+                f"💇 Tu as coupé des cheveux au black dans ta salle de bain, **{amount}** 💵 !",
+                f"🚛 Tu as déménagé un appart au 6ème sans ascenseur. Ton dos pleure, **{amount}** 💵 !",
+                f"📱 Tu as réparé des écrans de téléphone, **{amount}** 💵 !",
+                f"🎪 Tu as vendu de la barbe à papa à la fête foraine, **{amount}** 💵 !",
+                f"🧊 Tu as vendu des canettes fraîches devant le métro en pleine canicule, **{amount}** 💵 !",
+                f"🛒 Tu as fait la caisse au Carrefour. Ta patience a disparu mais **{amount}** 💵 !",
+                f"🎯 Testeur de jeux vidéo toute la journée. Le rêve qui paye **{amount}** 💵 !",
+                f"🏊 Maître-nageur à la piscine municipale. Personne noyé = **{amount}** 💵 !",
+                f"🎨 Tu as fait des portraits au fusain devant Montmartre, **{amount}** 💵 !",
+                f"🚲 Tu as fait coursier à vélo sous la pluie. Tes mollets hurlent, **{amount}** 💵 !",
+                f"🧪 Tu as été cobaye pour un test médical. Effets secondaires: aucun. **{amount}** 💵 !",
+                f"🎶 Tu as joué du djembé dans le métro. Les gens t'ont payé pour arrêter. **{amount}** 💵 !",
             ]
             
             self.database.add_points(user_id, amount, reason="Work")
