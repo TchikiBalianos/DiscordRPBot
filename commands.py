@@ -123,8 +123,16 @@ class Commands(commands.Cog):
         logger.info("Commands cog initialized")
         # Log all commands that will be registered
         logger.info(f"Commands being registered: {[method for method in dir(self) if method.endswith('_command')]}")
-        # Start prison auto-release task
-        self._prison_monitor_task = self.bot.loop.create_task(self._prison_monitor_loop())
+        # Prison task starts when bot is ready (not in __init__)
+        self._prison_task_started = False
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Start prison monitor when bot is ready"""
+        if not self._prison_task_started:
+            self._prison_task_started = True
+            asyncio.ensure_future(self._prison_monitor_loop())
+            logger.info("Prison monitor task started")
 
     async def _prison_monitor_loop(self):
         """Background task: libère automatiquement les prisonniers dont la peine est finie."""
