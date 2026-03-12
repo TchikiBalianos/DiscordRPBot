@@ -64,37 +64,46 @@ class EngagementBot(commands.Bot):
         """Load commands and setup systems"""
         try:
             # Start Twitter handler
-            await self.twitter_handler.start()
+            try:
+                await self.twitter_handler.start()
+            except Exception as e:
+                logger.warning(f"Twitter handler failed to start (non-critical): {e}")
             
             logger.info("Loading Commands cog...")
             from commands import Commands
             commands_cog = Commands(self, self.point_system, self.twitter_handler)
             self.add_cog(commands_cog)
+            logger.info("Commands cog loaded OK")
             
             # Load gang commands
             logger.info("Loading Gang Commands cog...")
             from gang_commands import GangCommands
             gang_commands_cog = GangCommands(self, self.db)
             self.add_cog(gang_commands_cog)
+            logger.info("Gang Commands cog loaded OK")
             
-            logger.info("Commands cogs loaded successfully")
             all_commands = sorted([c.name for c in self.commands])
+            logger.info(f"Commands cogs loaded successfully")
             logger.info(f"Available commands: {all_commands}")
             logger.info(f"Total number of commands: {len(all_commands)}")
 
-            # Setup gang events
-            if self.db.is_connected():
-                await setup_gang_events(self, self.db)
-                logger.info("Gang events system started")
-            else:
-                logger.warning("Skipping gang events setup due to database connection issues")
+            # Setup gang events (non-critical)
+            try:
+                if self.db.is_connected():
+                    await setup_gang_events(self, self.db)
+                    logger.info("Gang events system started")
+            except Exception as e:
+                logger.warning(f"Gang events setup failed (non-critical): {e}")
             
             # Migrate data if needed
-            await self._check_migration()
+            try:
+                await self._check_migration()
+            except Exception as e:
+                logger.warning(f"Migration check failed (non-critical): {e}")
 
         except Exception as e:
-            logger.error(f"Failed to load cogs: {e}", exc_info=True)
-            raise
+            logger.error(f"CRITICAL - Failed to load cogs: {e}", exc_info=True)
+            # NE PAS raise — le bot reste en vie pour le monitoring
     
     async def _check_migration(self):
         """Check if migration from JSON is needed"""
