@@ -72,7 +72,7 @@ DAILY_LIMITS = {
     # ── Commandes de galère ──
     "vendrecul": 5,     # 5x par jour
     "vendreslip": 5,    # 5x par jour
-    "vendredigite": 8,  # 8x par jour
+    "vendredignite": 8,  # 8x par jour
     "pret": 3,          # 3 demandes de prêt par jour
 }
 
@@ -103,7 +103,7 @@ COMMAND_COOLDOWNS = {
     # ── Commandes de galère (négatif) ──
     "vendrecul": 30 * 60,  # 30 min
     "vendreslip": 20 * 60, # 20 min
-    "vendredigite": 15 * 60, # 15 min
+    "vendredignite": 15 * 60, # 15 min
     "pret": 1 * 3600,      # 1h entre chaque demande de prêt
 }
 
