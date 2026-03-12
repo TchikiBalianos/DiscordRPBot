@@ -8,9 +8,20 @@ from config import (
     OWNER_ID, APPROVED_STAFF_IDS, DAILY_LIMITS, COMMAND_COOLDOWNS,
     COMMAND_NARRATIONS, EMOJI_POOL, COMBAT_FIRST_MOVE_TIMEOUT,
     COMBAT_REACTION_TIMEOUT, JUSTICE_CONFIG, ADMIN_CONFIG,
-    SHOP_ITEMS, SHOP_ITEMS_NEW, PRISON_ACTIVITIES, PRISON_DISCORD,
+    SHOP_ITEMS, SHOP_ITEMS_NEW, PRISON_ACTIVITIES,
     STAFF_EDITPOINTS_MAX_ADD, STAFF_EDITPOINTS_MAX_REMOVE,
 )
+# PRISON_DISCORD peut ne pas exister dans les anciennes versions de config.py
+try:
+    from config import PRISON_DISCORD
+except ImportError:
+    PRISON_DISCORD = {
+        "role_name": "🔒 Prisonnier",
+        "channel_name": "prison",
+        "category_name": "THUGZ JUSTICE",
+        "announce_channel": None,
+        "auto_release_check": 60,
+    }
 from tweepy.errors import TooManyRequests, NotFound, Unauthorized
 
 logger = logging.getLogger('EngagementBot')
@@ -123,16 +134,6 @@ class Commands(commands.Cog):
         logger.info("Commands cog initialized")
         # Log all commands that will be registered
         logger.info(f"Commands being registered: {[method for method in dir(self) if method.endswith('_command')]}")
-        # Prison task starts when bot is ready (not in __init__)
-        self._prison_task_started = False
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Start prison monitor when bot is ready"""
-        if not self._prison_task_started:
-            self._prison_task_started = True
-            asyncio.ensure_future(self._prison_monitor_loop())
-            logger.info("Prison monitor task started")
 
     async def _prison_monitor_loop(self):
         """Background task: libère automatiquement les prisonniers dont la peine est finie."""
