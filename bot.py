@@ -53,6 +53,10 @@ class EngagementBot(commands.Bot):
         self.db = SupabaseDatabase()
         self.point_system = PointSystem(self.db, self)
         self.twitter_handler = TwitterHandler()
+
+        # Startup guards
+        self._startup_done = False
+        self._twitter_started = False
         
         # Check database connection
         if not self.db.is_connected():
@@ -62,48 +66,62 @@ class EngagementBot(commands.Bot):
 
     async def setup_hook(self):
         """Load commands and setup systems"""
-        try:
-            # Start Twitter handler
+        if self._startup_done:
+            logger.info("setup_hook already executed, skipping.")
+            return
+
+        # Start Twitter handler once
+        if not self._twitter_started:
             try:
                 await self.twitter_handler.start()
+                self._twitter_started = True
+                logger.info("Twitter handler started")
             except Exception as e:
                 logger.warning(f"Twitter handler failed to start (non-critical): {e}")
-            
-            logger.info("Loading Commands cog...")
+
+        # Commands cog = critique
+        logger.info("Loading Commands cog...")
+        try:
             from commands import Commands
-            commands_cog = Commands(self, self.point_system, self.twitter_handler)
-            self.add_cog(commands_cog)
+            if not self.get_cog("Commands"):
+                commands_cog = Commands(self, self.point_system, self.twitter_handler)
+                self.add_cog(commands_cog)
             logger.info("Commands cog loaded OK")
-            
-            # Load gang commands
-            logger.info("Loading Gang Commands cog...")
-            from gang_commands import GangCommands
-            gang_commands_cog = GangCommands(self, self.db)
-            self.add_cog(gang_commands_cog)
-            logger.info("Gang Commands cog loaded OK")
-            
-            all_commands = sorted([c.name for c in self.commands])
-            logger.info(f"Commands cogs loaded successfully")
-            logger.info(f"Available commands: {all_commands}")
-            logger.info(f"Total number of commands: {len(all_commands)}")
-
-            # Setup gang events (non-critical)
-            try:
-                if self.db.is_connected():
-                    await setup_gang_events(self, self.db)
-                    logger.info("Gang events system started")
-            except Exception as e:
-                logger.warning(f"Gang events setup failed (non-critical): {e}")
-            
-            # Migrate data if needed
-            try:
-                await self._check_migration()
-            except Exception as e:
-                logger.warning(f"Migration check failed (non-critical): {e}")
-
         except Exception as e:
-            logger.error(f"CRITICAL - Failed to load cogs: {e}", exc_info=True)
-            # NE PAS raise — le bot reste en vie pour le monitoring
+            logger.critical(f"CRITICAL - Failed to load Commands cog: {e}", exc_info=True)
+            raise
+
+        # Gang commands = non critique
+        logger.info("Loading Gang Commands cog...")
+        try:
+            from gang_commands import GangCommands
+            if not self.get_cog("GangCommands"):
+                gang_commands_cog = GangCommands(self, self.db)
+                self.add_cog(gang_commands_cog)
+            logger.info("Gang Commands cog loaded OK")
+        except Exception as e:
+            logger.warning(f"Gang Commands failed to load (non-critical): {e}", exc_info=True)
+
+        all_commands = sorted([c.name for c in self.commands])
+        logger.info("Commands cogs loaded successfully")
+        logger.info(f"Available commands: {all_commands}")
+        logger.info(f"Total number of commands: {len(all_commands)}")
+
+        self._startup_done = True
+
+        # Setup gang events (non-critical)
+        try:
+            if self.db.is_connected():
+                await setup_gang_events(self, self.db)
+                logger.info("Gang events system started")
+        except Exception as e:
+            logger.warning(f"Gang events setup failed (non-critical): {e}")
+
+        # Migrate data if needed (non-critical)
+        try:
+            await self._check_migration()
+        except Exception as e:
+            logger.warning(f"Migration check failed (non-critical): {e}")
     
     async def _check_migration(self):
         """Check if migration from JSON is needed"""
@@ -134,14 +152,6 @@ class EngagementBot(commands.Bot):
         logger.info(f'{self.user} has connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
         
-        # Vérifier si les cogs sont chargés, sinon les charger
-        if not self.cogs:
-            logger.info("[WARNING] No cogs loaded yet, loading now...")
-            try:
-                await self.setup_hook()
-            except Exception as e:
-                logger.error(f"Failed to load cogs in on_ready: {e}", exc_info=True)
-        
         # Vérifier l'intégrité des systèmes
         await self._health_check()
         
@@ -155,7 +165,7 @@ class EngagementBot(commands.Bot):
                 self.db.cleanup_expired_data()
                 logger.info("[OK] Database cleanup completed")
             except Exception as e:
-                logger.error(f"Database cleanup failed: {e}")
+                logger.warning(f"Database cleanup failed (non-critical): {e}")
     
     async def _health_check(self):
         """Vérifier la santé des systèmes"""
@@ -248,7 +258,9 @@ class EngagementBot(commands.Bot):
             if hasattr(self, 'gang_events'):
                 await shutdown_gang_events(self)
             
-            await self.twitter_handler.stop()
+            if getattr(self, '_twitter_started', False):
+                await self.twitter_handler.stop()
+            
             await super().close()
             
         except Exception as e:
