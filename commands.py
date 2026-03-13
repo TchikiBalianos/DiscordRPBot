@@ -3466,7 +3466,7 @@ class Commands(commands.Cog):
 
     # ── !VENDRECUL — Désespoir total ──
 
-    @commands.command(name='vendrecul', aliases=['prostitution', 'trottoir', 'tapin'])
+    @commands.command(name='vendrecul', aliases=['trottoir', 'tapin'])
     @check_cooldown_and_limit('vendrecul')
     async def vendrecul_command(self, ctx):
         """Vendre son corps pour survivre... C'est la dèche totale."""
