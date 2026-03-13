@@ -1290,15 +1290,15 @@ class SupabaseDatabase:
     # === UTILITY ===
     
     def cleanup_expired_data(self):
-        """Cleanup expired data"""
+        """Cleanup expired data (safe version without missing RPC)"""
         try:
             if not self.is_connected():
                 return
-            
-            # Cleanup expired cooldowns
-            self.supabase.rpc('cleanup_expired_cooldowns').execute()
-            logger.info("Cleaned up expired cooldowns")
-            
+
+            # Les cooldowns expirés sont déjà nettoyés automatiquement
+            # par PointSystem.is_on_cooldown() -> remove_cooldown()
+            logger.info("Cleanup skipped: cooldown cleanup is handled lazily by the bot.")
+
         except Exception as e:
             logger.error(f"Error during cleanup: {e}", exc_info=True)
 
