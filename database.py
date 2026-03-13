@@ -1,1105 +1,1920 @@
-import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-import json
-import uuid
-from datetime import datetime
 import logging
-import stat
-from typing import Dict, Any, Optional
-from config import SHOP_ITEMS_NEW
+import json
+import time
+import asyncio
+from typing import Optional, Dict, List, Any, Tuple
+from supabase import create_client, Client
+from datetime import datetime, date, timedelta
+import random
 
 logger = logging.getLogger('EngagementBot')
 
-class Database:
+class SupabaseDatabase:
+    """Database manager using Supabase PostgreSQL with connection resilience"""
+    
     def __init__(self):
-        """Initialize database with empty structure and load data"""
-        logger.info("Initializing database...")
-        # Initialize empty structure first
-        self._initialize_empty_structure()
+        self.supabase: Optional[Client] = None
         
-        if not os.path.isfile('data.json'):
-            logger.warning("data.json not found, using empty database...")
-        else:
-            logger.info("data.json found, loading data...")
-            self.load_data()
-        logger.info("Database initialization complete")
-
-    def _initialize_empty_structure(self):
-        """Initialize empty data structure with all required keys"""
-        self.data: Dict[str, Dict[str, Any]] = {
-            'users': {},
-            'rob_cooldowns': {},
-            'prison_times': {},
-            'last_robbers': {},
-            'last_work': {},
-            'voice_sessions': {},
-            'twitter_links': {},
-            'twitter_stats': {},
-            'prison_roles': {},
-            'prison_activities': {},
-            'trials': {},
-            'trial_cooldowns': {},
-            'escape_cooldowns': {},
-            'combats': {},
-            'daily_commands': {},    # Track daily command usage
-            'lottery_tickets': {},    # Track lottery tickets
-            'lottery_jackpot': 1000,  # Base lottery jackpot
-            'race_bets': {},         # Track race bets
-            'roulette_cooldowns': {}, # Track roulette cooldowns
-            'losing_streaks': {},     # Track losing streaks for games
-            'special_items': {},       # Track special items (NFTs, etc.)
-            'inventories': {}         # Track user inventories
-        }
-        logger.info("Empty data structure initialized")
-
-    def load_data(self):
-        """Load data from JSON file with initialization if needed"""
+        # Import de la configuration de résilience
         try:
-            logger.info("Attempting to load data from data.json")
-
-            if os.path.exists('data.json'):
-                # Check file permissions
-                st = os.stat('data.json')
-                is_writable = bool(st.st_mode & stat.S_IWUSR)
-                logger.info(f"data.json exists and is {'writable' if is_writable else 'not writable'}")
-
-                if not is_writable:
-                    logger.warning("data.json exists but is not writable, attempting to fix permissions")
-                    os.chmod('data.json', st.st_mode | stat.S_IWUSR)
-
-                try:
-                    with open('data.json', 'r') as f:
-                        loaded_data = json.load(f)
-                        logger.info("Successfully read data.json")
-
-                        # Ensure all required keys exist with proper types
-                        required_keys = list(self.data.keys())
-                        for key in required_keys:
-                            if key not in loaded_data:
-                                logger.warning(f"Missing key {key} in loaded data, using empty dict")
-                                loaded_data[key] = {} if key != 'lottery_jackpot' else 1000
-                            elif key == 'lottery_jackpot' and not isinstance(loaded_data[key], (int, float)):
-                                logger.warning(f"Invalid type for {key}, resetting to default")
-                                loaded_data[key] = 1000
-                            elif key != 'lottery_jackpot' and not isinstance(loaded_data[key], dict):
-                                logger.warning(f"Invalid type for {key}, using empty dict")
-                                loaded_data[key] = {}
-
-                        self.data = loaded_data
-                        logger.info("Successfully loaded and validated data structure")
-                        logger.debug(f"Current data state: {self.data}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Error decoding data.json: {e}", exc_info=True)
-                    logger.info("Creating new data.json with default structure due to corruption")
-                    self._initialize_empty_structure()
-                    self.save_data()
-            else:
-                logger.info("No existing data.json found, creating new file with default structure")
-                # Create the data.json file with proper permissions
-                self.save_data()
-
-        except Exception as e:
-            logger.error(f"Error loading data: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to load data: {str(e)}")
-
-    def save_data(self):
-        """Save current data to JSON file with detailed error logging"""
-        try:
-            logger.info("Attempting to save data to data.json")
-            logger.debug(f"Current data state: {self.data}")
-
-            # Validate data structure
-            if not isinstance(self.data, dict):
-                raise ValueError("Data must be a dictionary")
-
-            # Ensure all required sections exist
-            required_sections = ['users', 'rob_cooldowns', 'voice_sessions', 'twitter_links', 'twitter_stats', 'prison_times', 'last_robbers', 'last_work', 'prison_roles', 'prison_activities', 'trials', 'trial_cooldowns', 'escape_cooldowns', 'combats', 'daily_commands', 'lottery_tickets', 'race_bets', 'roulette_cooldowns', 'losing_streaks', 'special_items', 'inventories']
-            for key in required_sections:
-                if key not in self.data:
-                    logger.warning(f"Missing key {key} in data, initializing empty")
-                    self.data[key] = {}
-                if not isinstance(self.data[key], dict):
-                    raise ValueError(f"Data[{key}] must be a dictionary")
+            from config import DATABASE_RESILIENCE_CONFIG
+            self.config = DATABASE_RESILIENCE_CONFIG
+        except ImportError:
+            # Configuration par défaut si config.py n'est pas disponible
+            self.config = {
+                "max_retries": 3,
+                "base_delay": 1.0,
+                "max_delay": 30.0,
+                "connection_timeout": 10.0,
+                "enable_degraded_mode": True,
+                "auto_reconnect": True,
+                "jitter_enabled": True
+            }
+        
+        self.max_retries = self.config.get("max_retries", 3)
+        self.base_delay = self.config.get("base_delay", 1.0)
+        self.max_delay = self.config.get("max_delay", 30.0)
+        self.connection_timeout = self.config.get("connection_timeout", 10.0)
+        self.last_connection_attempt = None
+        self.connection_failures = 0
+        self.is_reconnecting = False
+        # In-memory TTL cache to reduce repeated Supabase round-trips
+        self._cache: Dict[str, Any] = {}
+        self._cache_expiry: Dict[str, float] = {}
+        self._initialize_client()
+        
+        logger.info(f"[CONFIG] Database resilience configured: retries={self.max_retries}, timeout={self.connection_timeout}s")
+    
+    def _calculate_backoff_delay(self, attempt: int) -> float:
+        """Calculer le délai d'attente avec exponential backoff et jitter"""
+        delay = min(self.base_delay * (2 ** attempt), self.max_delay)
+        # Ajouter du jitter pour éviter les "thundering herd"
+        jitter = random.uniform(0.1, 0.3) * delay
+        return delay + jitter
+    
+    def _initialize_client(self):
+        """Initialize Supabase client with retry logic - optimized for Render environment"""
+        for attempt in range(self.max_retries):
+            try:
+                url = os.getenv('SUPABASE_URL')
+                key = os.getenv('SUPABASE_ANON_KEY')
+                
+                if not url or not key:
+                    logger.error("[WARNING] Supabase credentials not found in environment variables")
+                    logger.error("   Make sure SUPABASE_URL and SUPABASE_ANON_KEY are set")
+                    self.supabase = None
+                    return
+                
+                self.supabase = create_client(url, key)
+                logger.info(f"[OK] Supabase client initialized successfully (attempt {attempt + 1})")
+                
+                # Test de connexion robuste avec timeout
+                # En environnement Render, les première tentatives peuvent échouer
+                # mais la base de données finit par répondre
+                success = self._test_connection()
+                if success:
+                    self.connection_failures = 0
+                    self.last_connection_attempt = datetime.now()
+                    logger.info("[OK] Supabase connection test successful - Database is reachable")
+                    return
+                else:
+                    # Si test échoue, on continue anyway - la connexion peut être lente au démarrage
+                    if attempt == self.max_retries - 1:
+                        logger.warning("[WARNING] Initial connection test failed, but client is created. Will retry during operations.")
+                        self.last_connection_attempt = datetime.now()
+                        # Ne pas lever une exception - le bot fonctionnera en mode dégradé
+                        return
+                    else:
+                        raise Exception("Connection test failed - will retry")
             
-            # Handle lottery_jackpot separately as it's not a dict
-            if 'lottery_jackpot' not in self.data:
-                self.data['lottery_jackpot'] = 1000
-            if not isinstance(self.data['lottery_jackpot'], (int, float)):
-                raise ValueError("Data[lottery_jackpot] must be a number")
-
-            # Ensure the directory is writable
-            try:
-                with open('test_write', 'w') as f:
-                    f.write('test')
-                os.remove('test_write')
-                logger.info("Directory is writable")
             except Exception as e:
-                logger.error(f"Directory is not writable: {e}", exc_info=True)
-                raise RuntimeError("Directory is not writable")
-
-            # Create a temporary file first
-            temp_file = 'data.json.tmp'
-            logger.debug(f"Writing to temporary file: {temp_file}")
-
-            try:
-                with open(temp_file, 'w') as f:
-                    json.dump(self.data, f, indent=2)
-                logger.info(f"Successfully wrote to temporary file {temp_file}")
-            except Exception as e:
-                logger.error(f"Error writing to temporary file: {e}", exc_info=True)
-                raise RuntimeError(f"Failed to write temporary file: {str(e)}")
-
-            # If successful, rename to the actual file
-            try:
-                logger.debug(f"Attempting to replace data.json with {temp_file}")
-                os.replace(temp_file, 'data.json')
-                os.chmod('data.json', stat.S_IRUSR | stat.S_IWUSR)
-                logger.info("Successfully saved data to data.json")
-            except Exception as e:
-                logger.error(f"Error replacing data.json with temporary file: {e}", exc_info=True)
-                raise RuntimeError(f"Failed to replace data.json: {str(e)}")
-
-            # Verify the save was successful
-            if os.path.exists('data.json'):
-                st = os.stat('data.json')
-                logger.info(f"Verified data.json exists with size {st.st_size} bytes")
-            else:
-                raise RuntimeError("data.json not found after save")
-
-        except Exception as e:
-            logger.error(f"Error saving data: {e}", exc_info=True)
-            if os.path.exists('data.json.tmp'):
-                try:
-                    logger.info("Cleaning up temporary file")
-                    os.remove('data.json.tmp')
-                except Exception as cleanup_error:
-                    logger.error(f"Error cleaning up temporary file: {cleanup_error}")
-            raise RuntimeError(f"Failed to save data: {str(e)}")
-
-    def link_twitter_account(self, discord_id: str, twitter_username: str) -> None:
-        """Link Discord ID to Twitter username with enhanced error handling"""
+                self.connection_failures += 1
+                error_msg = f"Failed to initialize Supabase client (attempt {attempt + 1}/{self.max_retries})"
+                error_details = str(e)
+                
+                # Identifier le type d'erreur
+                if "Name or service not known" in error_details or "[Errno -2]" in error_details:
+                    logger.warning(f"[NETWORK] {error_msg}: DNS/Network issue - {error_details}")
+                elif "timeout" in error_details.lower():
+                    logger.warning(f"[TIMEOUT] {error_msg}: Connection timeout - {error_details}")
+                elif "refused" in error_details.lower():
+                    logger.warning(f"[REFUSED] {error_msg}: Connection refused - {error_details}")
+                else:
+                    logger.warning(f"[ERROR] {error_msg}: {error_details}")
+                
+                if attempt < self.max_retries - 1:
+                    delay = self._calculate_backoff_delay(attempt)
+                    logger.info(f"   [RETRY] Retrying in {delay:.2f}s... (this is normal in Render during startup)")
+                    time.sleep(delay)
+                else:
+                    logger.error(f"   [CRITICAL] All {self.max_retries} attempts failed. Bot will run with LIMITED FUNCTIONALITY.")
+                    logger.error(f"   Check: 1) Network connectivity 2) Render environment variables 3) Supabase status")
+                    self.supabase = None
+    
+    def _test_connection(self) -> bool:
+        """Test la connexion avec timeout"""
         try:
-            discord_id = str(discord_id)
-            twitter_username = twitter_username.lower()
-
-            logger.info(f"Attempting to link Twitter {twitter_username} to Discord {discord_id}")
-
-            # Verify data structure
-            if 'twitter_links' not in self.data:
-                logger.info("Initializing twitter_links in data structure")
-                self.data['twitter_links'] = {}
-
-            if 'twitter_stats' not in self.data:
-                logger.info("Initializing twitter_stats in data structure")
-                self.data['twitter_stats'] = {}
-
-            # Store the link
-            self.data['twitter_links'][discord_id] = twitter_username
-            logger.info(f"Successfully stored Twitter link in memory")
-
-            # Initialize stats
-            if discord_id not in self.data['twitter_stats']:
-                self.data['twitter_stats'][discord_id] = {
-                    'likes': 0,
-                    'month': datetime.now().month,
-                    'year': datetime.now().year,
-                    'last_reset': datetime.now().timestamp()
-                }
-                logger.info(f"Initialized Twitter stats for {discord_id}")
-
-            # Save to file
-            self.save_data()
-            logger.info(f"Successfully saved Twitter link and stats for {discord_id}")
-
+            if not self.supabase:
+                return False
+            
+            # Pour Windows et compatibilité cross-platform, on utilise threading
+            import threading
+            result = [False]
+            exception = [None]
+            
+            def test_query():
+                try:
+                    self.supabase.table('users').select('user_id').limit(1).execute()
+                    result[0] = True
+                except Exception as e:
+                    exception[0] = e
+            
+            thread = threading.Thread(target=test_query)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=self.connection_timeout)
+            
+            if thread.is_alive():
+                logger.warning("Connection test timeout")
+                return False
+            
+            if exception[0]:
+                logger.warning(f"Connection test failed: {exception[0]}")
+                return False
+            
+            return result[0]
+            
         except Exception as e:
-            logger.error(f"Error in link_twitter_account: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to link Twitter account: {str(e)}")
+            logger.warning(f"Connection test error: {e}")
+            return False
+    
+    async def _execute_with_retry(self, operation_name: str, operation_func, *args, **kwargs):
+        """Exécute une opération avec retry automatique en cas d'échec"""
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                # Vérifier si on a besoin de se reconnecter
+                if not self.is_connected() or self.connection_failures > 0:
+                    await self._attempt_reconnection()
+                
+                # Exécuter l'opération
+                result = operation_func(*args, **kwargs)
+                
+                # Reset les compteurs d'échec en cas de succès
+                if self.connection_failures > 0:
+                    logger.info(f"[OK] Database operation '{operation_name}' successful after reconnection")
+                    self.connection_failures = 0
+                
+                return result
+                
+            except Exception as e:
+                last_exception = e
+                self.connection_failures += 1
+                
+                error_msg = f"Database operation '{operation_name}' failed (attempt {attempt + 1}/{self.max_retries}): {e}"
+                
+                # Identifier les erreurs de connexion spécifiques
+                if any(keyword in str(e).lower() for keyword in ['connection', 'timeout', 'network', 'unreachable']):
+                    logger.warning(f"[CONNECTION] Connection issue detected: {error_msg}")
+                else:
+                    logger.error(f"[ERROR] {error_msg}")
+                
+                if attempt < self.max_retries - 1:
+                    delay = self._calculate_backoff_delay(attempt)
+                    logger.info(f"[RETRY] Retrying in {delay:.2f}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"[CRASH] All retry attempts exhausted for '{operation_name}'")
+        
+        # Si tous les retries ont échoué, utiliser le mode dégradé si possible
+        logger.error(f"[CRITICAL] Database operation '{operation_name}' failed permanently. Last error: {last_exception}")
+        return self._handle_degraded_mode(operation_name, last_exception)
+    
+    async def _attempt_reconnection(self):
+        """Tentative de reconnexion à la base de données"""
+        if self.is_reconnecting:
+            return  # Éviter les reconnexions multiples simultanées
+        
+        self.is_reconnecting = True
+        try:
+            logger.info("[RECONNECT] Attempting database reconnection...")
+            
+            # Réinitialiser le client
+            self.supabase = None
+            self._initialize_client()
+            
+            if self.is_connected():
+                logger.info("[OK] Database reconnection successful")
+            else:
+                logger.error("[ERROR] Database reconnection failed")
+                
+        except Exception as e:
+            logger.error(f"[ERROR] Reconnection attempt failed: {e}")
+        finally:
+            self.is_reconnecting = False
+    
+    def _handle_degraded_mode(self, operation_name: str, error: Exception):
+        """Gestion du mode dégradé en cas d'échec permanent"""
+        logger.warning(f"🛡️ Entering degraded mode for operation '{operation_name}'")
+        
+        # Mode dégradé selon le type d'opération
+        if 'get' in operation_name.lower():
+            # Pour les opérations de lecture, retourner des valeurs par défaut
+            if 'user_points' in operation_name:
+                return 0
+            elif 'leaderboard' in operation_name:
+                return []
+            elif 'gang' in operation_name:
+                return None
+            else:
+                return []
+        else:
+            # Pour les opérations d'écriture, retourner False
+            return False
+    
+    def is_connected(self) -> bool:
+        """Check if database is connected with health verification"""
+        if not self.supabase:
+            return False
+        
+        # Test rapide de connexion si la dernière vérification est ancienne
+        if (self.last_connection_attempt and 
+            (datetime.now() - self.last_connection_attempt).seconds > 300):  # 5 minutes
+            return self._test_connection()
+        
+        return True
 
-    def get_user_points(self, user_id):
-        return self.data['users'].get(str(user_id), {'points': 0})['points']
+    # === CACHE HELPERS ===
 
-    def add_points(self, user_id, points):
-        user_id = str(user_id)
-        if user_id not in self.data['users']:
-            self.data['users'][user_id] = {'points': 0}
-        self.data['users'][user_id]['points'] += points
-        self.save_data()
-
-    def set_rob_cooldown(self, user_id):
-        self.data['rob_cooldowns'][str(user_id)] = datetime.now().timestamp()
-        self.save_data()
-
-    def get_rob_cooldown(self, user_id):
-        return self.data['rob_cooldowns'].get(str(user_id), 0)
-
-    # New methods for prison system
-    def set_prison_time(self, user_id, release_time):
-        self.data['prison_times'][str(user_id)] = release_time
-        self.save_data()
-
-    def get_prison_time(self, user_id):
-        return self.data['prison_times'].get(str(user_id), 0)
-
-    # New methods for revenge system
-    def set_last_robber(self, victim_id, robber_id):
-        self.data['last_robbers'][str(victim_id)] = str(robber_id)
-        self.save_data()
-
-    def get_last_robber(self, victim_id):
-        return self.data['last_robbers'].get(str(victim_id))
-
-    def clear_last_robber(self, victim_id):
-        self.data['last_robbers'].pop(str(victim_id), None)
-        self.save_data()
-
-    # New methods for daily work
-    def set_last_work(self, user_id, timestamp):
-        self.data['last_work'][str(user_id)] = timestamp
-        self.save_data()
-
-    def get_last_work(self, user_id):
-        return self.data['last_work'].get(str(user_id), 0)
-
-    def get_leaderboard(self):
-        """Get monthly leaderboard with reset check"""
-        current_month = datetime.now().month
-        current_year = datetime.now().year
-
-        # Check if we need to reset the leaderboard
-        if not hasattr(self, '_last_reset_month') or self._last_reset_month != current_month:
-            logger.info("Monthly leaderboard reset")
-            self.data['users'] = {user_id: {'points': 0} for user_id in self.data['users']}
-            self._last_reset_month = current_month
-            self.save_data()
-
-        sorted_users = sorted(
-            self.data['users'].items(),
-            key=lambda x: x[1]['points'],
-            reverse=True
-        )
-        return sorted_users
-
-    def start_voice_session(self, user_id, event_name=None):
-        """Start tracking voice time for a user"""
-        user_id = str(user_id)
-        timestamp = datetime.now().timestamp()
-
-        if 'voice_sessions' not in self.data:
-            self.data['voice_sessions'] = {}
-
-        self.data['voice_sessions'][user_id] = {
-            'start_time': timestamp,
-            'event_name': event_name  # Si c'est pendant un événement spécial
-        }
-
-        logger.info(f"Started voice session for {user_id}" + (f" during event: {event_name}" if event_name else ""))
-        self.save_data()
-
-    def end_voice_session(self, user_id):
-        """End voice session and award points"""
-        user_id = str(user_id)
-        if user_id not in self.data['voice_sessions']:
-            return 0
-
-        session = self.data['voice_sessions'][user_id]
-        duration = datetime.now().timestamp() - session['start_time']
-        points_earned = 0
-
-        # Points de base pour le vocal (1 point par minute)
-        base_points = int(duration / 60)
-
-        # Bonus si c'était pendant un événement
-        if session.get('event_name'):
-            base_points *= 2  # Double points pendant les événements
-            logger.info(f"Event bonus applied for {user_id} in {session['event_name']}")
-
-        points_earned = base_points
-        self.add_points(user_id, points_earned)
-
-        del self.data['voice_sessions'][user_id]
-        self.save_data()
-
-        logger.info(f"Ended voice session for {user_id}. Duration: {duration:.0f}s, Points earned: {points_earned}")
-        return duration, points_earned
-
-    # Méthodes pour la gestion Twitter    
-    def get_twitter_username(self, discord_id):
-        """Récupère le nom d'utilisateur Twitter lié à un ID Discord"""
-        discord_id = str(discord_id)
-        username = self.data['twitter_links'].get(discord_id)
-        logger.info(f"Retrieved Twitter username for Discord ID {discord_id}: {username}")
-        return username
-
-    def get_discord_id_by_twitter(self, twitter_username):
-        """Récupère l'ID Discord lié à un nom d'utilisateur Twitter"""
-        twitter_username = twitter_username.lower()
-        for discord_id, linked_twitter in self.data['twitter_links'].items():
-            if linked_twitter == twitter_username:
-                return discord_id
+    def _cache_get(self, key: str) -> Any:
+        """Return cached value if still valid, else None."""
+        if time.time() < self._cache_expiry.get(key, 0):
+            return self._cache.get(key)
+        self._cache.pop(key, None)
+        self._cache_expiry.pop(key, None)
         return None
 
-    def get_twitter_stats(self, discord_id):
-        """Récupère les statistiques Twitter du mois en cours pour un utilisateur"""
-        discord_id = str(discord_id)
-        if discord_id not in self.data['twitter_stats']:
-            return {
-                'likes': 0,
-                'month': datetime.now().month,
-                'year': datetime.now().year,
-                'last_reset': datetime.now().timestamp()
-            }
+    def _cache_set(self, key: str, value: Any, ttl: int = 30):
+        """Store value in cache with TTL in seconds."""
+        self._cache[key] = value
+        self._cache_expiry[key] = time.time() + ttl
 
-        stats = self.data['twitter_stats'][discord_id]
-        current_month = datetime.now().month
-        current_year = datetime.now().year
+    def _cache_invalidate(self, *keys: str):
+        """Remove one or more keys from the cache."""
+        for k in keys:
+            self._cache.pop(k, None)
+            self._cache_expiry.pop(k, None)
 
-        # Si on a changé de mois, on réinitialise les stats
-        if (stats.get('month', 0) != current_month or 
-            stats.get('year', 0) != current_year):
-            stats = {
-                'likes': 0,
-                'month': current_month,
-                'year': current_year,
-                'last_reset': datetime.now().timestamp()
-            }
-            self.data['twitter_stats'][discord_id] = stats
-            self.save_data()
-
-        return stats
-
-    def update_twitter_stats(self, discord_id, new_stats):
-        """Met à jour les statistiques Twitter d'un utilisateur"""
-        discord_id = str(discord_id)
-        current_stats = self.get_twitter_stats(discord_id)  # Ceci va gérer la réinitialisation si nécessaire
-
+    def get_connection_status(self) -> Dict[str, Any]:
+        """Obtenir le statut détaillé de la connexion"""
+        return {
+            "connected": self.is_connected(),
+            "connection_failures": self.connection_failures,
+            "last_attempt": self.last_connection_attempt.isoformat() if self.last_connection_attempt else None,
+            "is_reconnecting": self.is_reconnecting,
+            "max_retries": self.max_retries,
+            "status": "healthy" if self.connection_failures == 0 else "degraded" if self.connection_failures < 3 else "critical"
+        }
+    
+    # === USER MANAGEMENT ===
+    
+    def get_user_data(self, user_id: str) -> Dict:
+        """Get user data with fallback and retry logic"""
         try:
-            self.data['twitter_stats'][discord_id] = {
-                'likes': new_stats.get('likes', 0),
-                'month': datetime.now().month,
-                'year': datetime.now().year,
-                'last_reset': current_stats.get('last_reset', datetime.now().timestamp())
-            }
-            self.save_data()
-            logger.info(f"Successfully updated Twitter stats for {discord_id}")
+            # Essayer d'obtenir l'utilisateur directement (Supabase est synchrone)
+            result = self.supabase.table('users').select('*').eq('user_id', user_id).execute()
+            if result.data:
+                return result.data[0]
+            else:
+                # Create new user
+                new_user = {
+                    'user_id': user_id,
+                    'points': 0
+                }
+                self.supabase.table('users').insert(new_user).execute()
+                logger.info(f"Created new user: {user_id}")
+                return new_user
         except Exception as e:
-            logger.error(f"Error updating Twitter stats: {e}", exc_info=True)
-            raise
+            logger.error(f"Failed to get user data: {e}")
+            # Mode dégradé : retourner des données par défaut
+            return {'user_id': user_id, 'points': 0}
 
-    def get_all_twitter_users(self):
-        """Récupère tous les utilisateurs ayant lié leur compte Twitter"""
-        return self.data['twitter_links'].items()
+    def get_user_points(self, user_id: str) -> int:
+        """Get user points with resilience"""
+        cache_key = f"points:{user_id}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            if not self.supabase:
+                raise Exception("Database not connected")
+            
+            result = self.supabase.table('users').select('points').eq('user_id', user_id).execute()
+            
+            if result.data:
+                points = result.data[0]['points']
+                self._cache_set(cache_key, points, ttl=15)
+                return points
+            else:
+                # Créer un nouvel utilisateur
+                self.supabase.table('users').insert({
+                    'user_id': user_id,
+                    'points': 0
+                }).execute()
+                self._cache_set(cache_key, 0, ttl=15)
+                return 0
+        except Exception as e:
+            logger.error(f"Failed to get user points: {e}")
+            return 0  # Mode dégradé
 
-    def add_item_to_inventory(self, user_id: str, item_id: str):
-        """Add an item to user's inventory"""
-        user_id = str(user_id)
-        inv = self.data["inventories"].setdefault(str(user_id), [])
-        inv.append(item_id)
-        self.save_data()
-
-    def remove_item_from_inventory(self, user_id: str, item_id: str):
-        inv = self.data["inventories"].setdefault(str(user_id), [])
-        if item_id in inv:
-            inv.remove(item_id)
-            self.save_data()
+    def add_points(self, user_id: str, amount: int, reason: str = "") -> bool:
+        """Add points to user"""
+        try:
+            if not self.is_connected():
+                return False
+            self._cache_invalidate(f"points:{user_id}")
+            # Vérifier si l'utilisateur existe
+            user_result = self.supabase.table('users').select('points').eq('user_id', user_id).execute()
+            
+            if user_result.data:
+                current_points = user_result.data[0]['points']
+                new_points = current_points + amount
+                
+                # Mettre à jour les points
+                self.supabase.table('users').update({
+                    'points': new_points
+                }).eq('user_id', user_id).execute()
+                
+                # Log de la transaction si demandé
+                if reason:
+                    self.supabase.table('point_transactions').insert({
+                        'user_id': user_id,
+                        'amount': amount,
+                        'reason': reason,
+                        'timestamp': datetime.now().isoformat()
+                    }).execute()
+                
+                return True
+            else:
+                # Créer un nouvel utilisateur
+                initial_points = max(0, amount)
+                self.supabase.table('users').insert({
+                    'user_id': user_id,
+                    'points': initial_points
+                }).execute()
+                
+                if reason and amount != 0:
+                    self.supabase.table('point_transactions').insert({
+                        'user_id': user_id,
+                        'amount': amount,
+                        'reason': reason,
+                        'timestamp': datetime.now().isoformat()
+                    }).execute()
+                
+                return True
+        except Exception as e:
+            logger.error(f"Error adding points: {e}")
+            return False
+    
+    def remove_points(self, user_id: str, points: int) -> bool:
+        """Remove points from user (peut aller en négatif)"""
+        try:
+            if not self.is_connected():
+                return False
+            self._cache_invalidate(f"points:{user_id}")
+            current_user = self.get_user_data(user_id)
+            
+            # On autorise le négatif — la dette fait partie du jeu
+            new_points = current_user['points'] - points
+            self.supabase.table('users').update({
+                'points': new_points,
+                'updated_at': datetime.now().isoformat()
+            }).eq('user_id', user_id).execute()
+            
             return True
-        return False
-
-    def get_inventory(self, user_id: str):
-        """Get user's inventory"""
-        return self.data.get('inventories', {}).get(str(user_id), [])
-
-    def add_special_item(self, user_id: str, item_id: str) -> None:
-        """Add a special item (NFT, gift card, etc.) to user's inventory"""
-        user_id = str(user_id)
-        logger.info(f"Adding special item {item_id} to user {user_id}")
-
-        if 'special_items' not in self.data:
-            self.data['special_items'] = {}
-
-        if user_id not in self.data['special_items']:
-            self.data['special_items'][user_id] = []
-
-        self.data['special_items'][user_id].append({
-            'item_id': item_id,
-            'acquired_at': datetime.now().timestamp()
-        })
-
-        # Update remaining quantity in SHOP_ITEMS_NEW
-        if item_id in SHOP_ITEMS_NEW:
-            SHOP_ITEMS_NEW[item_id]['quantity'] -= 1
-
-        self.save_data()
-        logger.info(f"Successfully added special item {item_id} to user {user_id}")
-
-    def get_special_items(self, user_id: str) -> list:
-        """Get user's special items"""
-        return self.data.get('special_items', {}).get(str(user_id), [])
-
-    def check_item_availability(self, item_id: str) -> bool:
-        """Check if a special item is still available for purchase"""
-        if item_id not in SHOP_ITEMS_NEW:
+            
+        except Exception as e:
+            logger.error(f"Error removing points: {e}", exc_info=True)
             return False
-        return SHOP_ITEMS_NEW[item_id]['quantity'] > 0
+    
+    def get_leaderboard(self, limit: int = 10) -> List[Dict]:
+        """Get points leaderboard"""
+        try:
+            if not self.is_connected():
+                return []
+            
+            result = self.supabase.table('users').select('*').order('points', desc=True).limit(limit).execute()
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting leaderboard: {e}", exc_info=True)
+            return []
+    
+    # === COOLDOWNS ===
+    
+    def set_cooldown(self, table_name: str, user_id: str, cooldown_time: float):
+        """Set user cooldown"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('user_cooldowns').upsert({
+                'user_id': user_id,
+                'cooldown_type': table_name,
+                'cooldown_until': cooldown_time
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error setting cooldown: {e}", exc_info=True)
+    
+    def get_cooldown(self, table_name: str, user_id: str) -> Optional[float]:
+        """Get user cooldown"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('user_cooldowns').select('cooldown_until').eq('user_id', user_id).eq('cooldown_type', table_name).execute()
+            
+            if result.data:
+                return result.data[0]['cooldown_until']
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting cooldown: {e}", exc_info=True)
+            return None
+    
+    def remove_cooldown(self, table_name: str, user_id: str):
+        """Remove user cooldown"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('user_cooldowns').delete().eq('user_id', user_id).eq('cooldown_type', table_name).execute()
+            
+        except Exception as e:
+            logger.error(f"Error removing cooldown: {e}", exc_info=True)
 
-
-    def get_active_heist(self):
-        """Get active heist if any"""
-        return self.data.get('active_heist')
-
-    def create_heist(self, leader_id: str):
-        """Create a new heist"""
-        self.data['active_heist'] = {
-            'leader': str(leader_id),
-            'participants': [str(leader_id)],
-            'start_time': datetime.now().timestamp()
-        }
-        self.save_data()
-
-    def add_heist_participant(self, user_id: str):
-        """Add participant to active heist"""
-        if 'active_heist' in self.data:
-            self.data['active_heist']['participants'].append(str(user_id))
-            self.save_data()
-
-    def clear_active_heist(self):
-        """Clear active heist"""
-        if 'active_heist' in self.data:
-            del self.data['active_heist']
-            self.save_data()
-
-    def set_drug_deal_cooldown(self, user_id: str):
-        """Set drug deal cooldown"""
-        if 'drug_deal_cooldowns' not in self.data:
-            self.data['drug_deal_cooldowns'] = {}
-        self.data['drug_deal_cooldowns'][str(user_id)] = datetime.now().timestamp()
-        self.save_data()
-
-    def get_drug_deal_cooldown(self, user_id: str):
-        """Get drug deal cooldown"""
-        return self.data.get('drug_deal_cooldowns', {}).get(str(user_id), 0)
-
-    def set_chase_cooldown(self, user_id: str):
-        """Set police chase cooldown"""
-        if 'chase_cooldowns' not in self.data:
-            self.data['chase_cooldowns'] = {}
-        self.data['chase_cooldowns'][str(user_id)] = datetime.now().timestamp()
-        self.save_data()
-
-    def get_chase_cooldown(self, user_id: str):
-        """Get police chase cooldown"""
-        return self.data.get('chase_cooldowns', {}).get(str(user_id), 0)
-
-    def set_prison_role(self, user_id: str, role: str):
-        """Set prison role for user"""
-        if 'prison_roles' not in self.data:
-            self.data['prison_roles'] = {}
-        self.data['prison_roles'][str(user_id)] = role
-        self.save_data()
-
-    def get_prison_role(self, user_id: str):
-        """Get user's prison role"""
-        return self.data.get('prison_roles', {}).get(str(user_id))
-
-    def set_last_prison_activity(self, user_id: str, timestamp: float):
-        """Set timestamp of last prison activity"""
-        if 'prison_activities' not in self.data:
-            self.data['prison_activities'] = {}
-        self.data['prison_activities'][str(user_id)] = timestamp
-        self.save_data()
-
-    def get_last_prison_activity(self, user_id: str):
-        """Get timestamp of last prison activity"""
-        return self.data.get('prison_activities', {}).get(str(user_id), 0)
-
-    def create_trial(self, user_id: str, plea: str, end_time: float):
-        """Create a new trial"""
-        if 'trials' not in self.data:
-            self.data['trials'] = {}
-        self.data['trials'][str(user_id)] = {
-            'plea': plea,
-            'end_time': end_time,
-            'votes': {}
-        }
-        self.save_data()
-
-    def get_active_trial(self, user_id: str):
-        """Get active trial for user"""
-        return self.data.get('trials', {}).get(str(user_id))
-
-    def add_trial_vote(self, defendant_id: str, voter_id: str, vote: bool):
-        """Add a vote to a trial"""
-        if 'trials' in self.data and str(defendant_id) in self.data['trials']:
-            self.data['trials'][str(defendant_id)]['votes'][str(voter_id)] = vote
-            self.save_data()
-
-    def get_trial_votes(self, user_id: str):
-        """Get votes for a trial"""
-        trial = self.get_active_trial(user_id)
-        return trial['votes'] if trial else {}
-
-    def clear_active_trial(self, user_id: str):
-        """Clear active trial"""
-        if 'trials' in self.data:
-            self.data['trials'].pop(str(user_id), None)
-            self.save_data()
-
-    def set_trial_cooldown(self, user_id: str, timestamp: float):
-        """Set trial cooldown"""
-        if 'trial_cooldowns' not in self.data:
-            self.data['trial_cooldowns'] = {}
-        self.data['trial_cooldowns'][str(user_id)] = timestamp
-        self.save_data()
-
-    def get_trial_cooldown(self, user_id: str):
-        """Get trial cooldown"""
-        return self.data.get('trial_cooldowns', {}).get(str(user_id), 0)
-
-    def get_escape_cooldown(self, user_id: str):
-        """Get last escape attempt timestamp"""
-        return self.data.get('escape_cooldowns', {}).get(str(user_id), 0)
-
-    def set_escape_cooldown(self, user_id: str, timestamp: float):
-        """Set escape attempt cooldown"""
-        if 'escape_cooldowns' not in self.data:
-            self.data['escape_cooldowns'] = {}
-        self.data['escape_cooldowns'][str(user_id)] = timestamp
-        self.save_data()
-
-    def create_combat(self, combat_data: dict):
-        """Create a new combat"""
-        if 'combats' not in self.data:
-            self.data['combats'] = {}
-        combat_id = str(uuid.uuid4())
-        self.data['combats'][combat_id] = combat_data
-        self.save_data()
-        return combat_id
-
-    def get_combat(self, combat_id: str):
-        """Get combat data"""
-        return self.data.get('combats', {}).get(combat_id)
-
-    def update_combat(self, combat_id: str, combat_data: dict):
-        """Update combat data"""
-        if 'combats' in self.data and combat_id in self.data['combats']:
-            self.data['combats'][combat_id] = combat_data
-            self.save_data()
-
-    def end_combat(self, combat_id: str):
-        """End and remove combat"""
-        if 'combats' in self.data:
-            self.data['combats'].pop(combat_id, None)
-            self.save_data()
-
+    # === COMMAND COOLDOWNS (TECH Brief Implementation) ===
+    
+    def set_command_cooldown(self, user_id: str, command_name: str, cooldown_seconds: int):
+        """Set command cooldown according to TECH Brief specs"""
+        cooldown_until = time.time() + cooldown_seconds
+        self.set_cooldown(f"command_{command_name}", user_id, cooldown_until)
+    
+    def get_command_cooldown(self, user_id: str, command_name: str) -> int:
+        """Get remaining cooldown time in seconds for a command"""
+        try:
+            cooldown_until = self.get_cooldown(f"command_{command_name}", user_id)
+            if cooldown_until is None:
+                return 0
+            
+            remaining = int(cooldown_until - time.time())
+            return max(0, remaining)  # Ne jamais retourner de valeur négative
+            
+        except Exception as e:
+            logger.error(f"Error getting command cooldown: {e}", exc_info=True)
+            return 0
+    
+    # === DAILY USAGE TRACKING (TECH Brief) ===
+    
     def get_daily_usage(self, user_id: str, command: str) -> int:
-        """Get number of times a command was used today"""
-        user_id = str(user_id)
-        today = datetime.now().strftime('%Y-%m-%d')
-
-        if user_id not in self.data['daily_commands']:
-            self.data['daily_commands'][user_id] = {}
-
-        if today not in self.data['daily_commands'][user_id]:
-            self.data['daily_commands'][user_id][today] = {}
-
-        return self.data['daily_commands'][user_id][today].get(command, 0)
-
-    def increment_daily_usage(self, user_id: str, command: str) -> None:
-        """Increment command usage counter"""
-        user_id = str(user_id)
-        today = datetime.now().strftime('%Y-%m-%d')
-
-        if user_id not in self.data['daily_commands']:
-            self.data['daily_commands'][user_id] = {}
-
-        if today not in self.data['daily_commands'][user_id]:
-            self.data['daily_commands'][user_id][today] = {}
-
-        current = self.data['daily_commands'][user_id][today].get(command, 0)
-        self.data['daily_commands'][user_id][today][command] = current + 1
-        self.save_data()
-
-    LOTTERY_MAX_TICKETS = 5 #Example value, adjust as needed
-    LOTTERY_TICKET_PRICE = 100 #Example value, adjust as needed
-    LOTTERY_JACKPOT_BASE = 1000 #Example value, adjust as needed
-
-    def buy_lottery_ticket(self, user_id: str, numbers: list) -> bool:
-        """Buy a lottery ticket"""
-        user_id = str(user_id)
-        if user_id not in self.data['lottery_tickets']:
-            self.data['lottery_tickets'][user_id] = []
-
-        # Check if user hasn't exceeded max tickets
-        if len(self.data['lottery_tickets'][user_id]) >= self.LOTTERY_MAX_TICKETS:
+        """Get daily usage count for a command"""
+        try:
+            if not self.is_connected():
+                return 0
+            
+            # Get today's date
+            today = datetime.now().date().isoformat()
+            
+            result = self.supabase.table('command_usage').select('*').eq('user_id', user_id).eq('command_name', command).eq('date', today).execute()
+            
+            if result.data:
+                return result.data[0].get('usage_count', 0)
+            return 0
+            
+        except Exception as e:
+            logger.warning(f"Error getting daily usage: {e}")
+            return 0  # Graceful degradation
+    
+    def increment_daily_usage(self, user_id: str, command: str):
+        """Increment daily usage count for a command"""
+        try:
+            if not self.is_connected():
+                return
+            
+            # Get today's date
+            today = datetime.now().date().isoformat()
+            
+            # Try to update existing record
+            result = self.supabase.table('command_usage').select('*').eq('user_id', user_id).eq('command_name', command).eq('date', today).execute()
+            
+            if result.data:
+                # Increment existing
+                count = result.data[0].get('usage_count', 0)
+                self.supabase.table('command_usage').update({'usage_count': count + 1}).eq('user_id', user_id).eq('command_name', command).eq('date', today).execute()
+            else:
+                # Create new record
+                self.supabase.table('command_usage').insert({
+                    'user_id': user_id,
+                    'command_name': command,
+                    'date': today,
+                    'usage_count': 1
+                }).execute()
+                
+        except Exception as e:
+            logger.warning(f"Error incrementing daily usage: {e}")
+    
+    def get_last_work(self, user_id: str) -> float:
+        """Get timestamp of last work command"""
+        try:
+            if not self.is_connected():
+                return 0
+            
+            result = self.supabase.table('user_data').select('last_work').eq('user_id', user_id).execute()
+            if result.data:
+                return float(result.data[0].get('last_work', 0))
+            return 0
+            
+        except Exception as e:
+            logger.warning(f"Error getting last work: {e}")
+            return 0
+    
+    def set_last_work(self, user_id: str, timestamp: float):
+        """Set timestamp of last work command"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('user_data').update({'last_work': timestamp}).eq('user_id', user_id).execute()
+            
+        except Exception as e:
+            logger.warning(f"Error setting last work: {e}")
+    
+    # === VOICE SESSIONS ===
+    
+    def start_voice_session(self, user_id: str, event_name: str = None):
+        """Start voice session"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('voice_sessions').upsert({
+                'user_id': user_id,
+                'start_time': time.time(),
+                'event_name': event_name
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error starting voice session: {e}", exc_info=True)
+    
+    def end_voice_session(self, user_id: str) -> Optional[Dict]:
+        """End voice session and return session info"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            # Get session
+            result = self.supabase.table('voice_sessions').select('*').eq('user_id', user_id).execute()
+            
+            if result.data:
+                session = result.data[0]
+                
+                # Remove session
+                self.supabase.table('voice_sessions').delete().eq('user_id', user_id).execute()
+                
+                return session
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error ending voice session: {e}", exc_info=True)
+            return None
+    
+    def get_voice_session(self, user_id: str) -> Optional[Dict]:
+        """Get current voice session"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('voice_sessions').select('*').eq('user_id', user_id).execute()
+            return result.data[0] if result.data else None
+            
+        except Exception as e:
+            logger.error(f"Error getting voice session: {e}", exc_info=True)
+            return None
+    
+    # === TWITTER ===
+    
+    def link_twitter(self, user_id: str, twitter_handle: str):
+        """Link Twitter account"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('twitter_links').upsert({
+                'user_id': user_id,
+                'twitter_handle': twitter_handle
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error linking Twitter: {e}", exc_info=True)
+    
+    def get_twitter_link(self, user_id: str) -> Optional[str]:
+        """Get Twitter link"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('twitter_links').select('twitter_handle').eq('user_id', user_id).execute()
+            return result.data[0]['twitter_handle'] if result.data else None
+            
+        except Exception as e:
+            logger.error(f"Error getting Twitter link: {e}", exc_info=True)
+            return None
+    
+    # === PRISON ===
+    
+    def set_prison_time(self, user_id: str, release_time: float):
+        """Set prison time"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('prison_times').upsert({
+                'user_id': user_id,
+                'release_time': release_time
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error setting prison time: {e}", exc_info=True)
+    
+    def get_prison_time(self, user_id: str) -> Optional[float]:
+        """Get prison release time"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('prison_times').select('release_time').eq('user_id', user_id).execute()
+            return result.data[0]['release_time'] if result.data else None
+            
+        except Exception as e:
+            logger.error(f"Error getting prison time: {e}", exc_info=True)
+            return None
+    
+    def remove_prison_time(self, user_id: str):
+        """Remove prison time"""
+        try:
+            if not self.is_connected():
+                return
+            
+            self.supabase.table('prison_times').delete().eq('user_id', user_id).execute()
+            
+        except Exception as e:
+            logger.error(f"Error removing prison time: {e}", exc_info=True)
+    
+    # === GANGS ===
+    
+    def create_gang(self, name: str, boss_id: str, description: str = "") -> bool:
+        """Create a new gang"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Create gang
+            gang_result = self.supabase.table('gangs').insert({
+                'name': name,
+                'description': description,
+                'boss_id': boss_id,
+                'vault_points': 0,
+                'reputation': 0,
+                'territory_count': 0
+            }).execute()
+            
+            if gang_result.data:
+                gang_id = gang_result.data[0]['id']
+                
+                # Add boss as member
+                self.supabase.table('gang_members').insert({
+                    'gang_id': gang_id,
+                    'user_id': boss_id,
+                    'rank': 'boss'
+                }).execute()
+                
+                return True
+            
             return False
-
-        self.data['lottery_tickets'][user_id].append(numbers)
-        self.data['lottery_jackpot'] += self.LOTTERY_TICKET_PRICE // 2  # Half of ticket price goes to jackpot
-        self.save_data()
-        return True
-
-    def get_lottery_tickets(self, user_id: str) -> list:
-        """Get user's lottery tickets"""
-        return self.data['lottery_tickets'].get(str(user_id), [])
-
-    def clear_lottery_tickets(self) -> None:
-        """Clear all lottery tickets after draw"""
-        self.data['lottery_tickets'] = {}
-        self.data['lottery_jackpot'] = self.LOTTERY_JACKPOT_BASE
-        self.save_data()
-
-    def place_race_bet(self, user_id: str, horse: str, amount: int) -> None:
-        """Place a bet on a horse"""
-        user_id = str(user_id)
-        if 'race_bets' not in self.data:
-            self.data['race_bets'] = {}
-
-        self.data['race_bets'][user_id] = {
-            'horse': horse,
-            'amount': amount,
-            'time': datetime.now().timestamp()
-        }
-        self.save_data()
-
-    def get_race_bet(self, user_id: str) -> dict:
-        """Get user's race bet"""
-        return self.data.get('race_bets', {}).get(str(user_id))
-
-    def clear_race_bets(self) -> None:
-        """Clear all race bets"""
-        self.data['race_bets'] = {}
-        self.save_data()
-
-    def set_roulette_cooldown(self, user_id: str) -> None:
-        """Set roulette cooldown"""
-        self.data['roulette_cooldowns'][str(user_id)] = datetime.now().timestamp()
-        self.save_data()
-
-    def get_roulette_cooldown(self, user_id: str) -> float:
-        """Get roulette cooldown"""
-        return self.data['roulette_cooldowns'].get(str(user_id), 0)
-
-    def get_losing_streak(self, user_id: str, game_type: str) -> int:
-        """Get current losing streak for a specific game"""
-        if 'losing_streaks' not in self.data:
-            self.data['losing_streaks'] = {}
-
-        if user_id not in self.data['losing_streaks']:
-            self.data['losing_streaks'][user_id] = {}
-
-        return self.data['losing_streaks'][user_id].get(game_type, 0)
-
-    def update_losing_streak(self, user_id: str, game_type: str, won: bool) -> None:
-        """Update losing streak counter"""
-        if 'losing_streaks' not in self.data:
-            self.data['losing_streaks'] = {}
-
-        if user_id not in self.data['losing_streaks']:
-            self.data['losing_streaks'][user_id] = {}
-
-        if won:
-            self.data['losing_streaks'][user_id][game_type] = 0
-        else:
-            current = self.data['losing_streaks'][user_id].get(game_type, 0)
-            self.data['losing_streaks'][user_id][game_type] = current + 1
-        self.save_data()
-
-    DICE_LOSING_STREAK_PENALTY = 0.2 #Example value, adjust as needed
-    BLACKJACK_STREAK_PENALTY = True #Example value, adjust as needed
-
-    def calculate_penalty_multiplier(self, user_id: str, game_type: str) -> float:
-        """Calculate penalty multiplier based on losing streak"""
-        streak = self.get_losing_streak(user_id, game_type)
-        if game_type == 'dice' and streak >= 3:
-            return 1 + self.DICE_LOSING_STREAK_PENALTY
-        elif game_type == 'blackjack' and self.BLACKJACK_STREAK_PENALTY:
-            return 1 + (0.1 * min(streak, 5))  # Max 50% additional loss after 5 losses
-        return 1.0
-
-    def add_twitter_interaction(self, discord_id: str, interaction_type: str, count: int = 1):
-        """Track Twitter interactions (likes, RT, replies)"""
-        discord_id = str(discord_id)
-        if 'twitter_stats' not in self.data:
-            self.data['twitter_stats'] = {}
-
-        if discord_id not in self.data['twitter_stats']:
-            self.data['twitter_stats'][discord_id] = {
-                'likes': 0,
-                'retweets': 0,
-                'replies': 0,
-                'month': datetime.now().month,
-                'year': datetime.now().year
-            }
-
-        # Points par type d'interaction
-        points_per_action = {
-            'like': 1,
-            'retweet': 3,
-            'reply': 2
-        }
-
-        if interaction_type in points_per_action:
-            self.data['twitter_stats'][discord_id][interaction_type + 's'] += count
-            points = points_per_action[interaction_type] * count
-            self.add_points(discord_id, points)
-            logger.info(f"Added {count} {interaction_type}(s) for {discord_id}, earned {points} points")
-
-        self.save_data()
-
-    def get_all_twitter_users(self):
-        """Récupère tous les utilisateurs ayant lié leur compte Twitter"""
-        return self.data['twitter_links'].items()
-
-    def add_item_to_inventory(self, user_id: str, item_id: str):
-        """Add an item to user's inventory"""
-        user_id = str(user_id)
-        inv = self.data["inventories"].setdefault(str(user_id), [])
-        inv.append(item_id)
-        self.save_data()
-
-    def remove_item_from_inventory(self, user_id: str, item_id: str):
-        inv = self.data["inventories"].setdefault(str(user_id), [])
-        if item_id in inv:
-            inv.remove(item_id)
-            self.save_data()
+            
+        except Exception as e:
+            logger.error(f"Error creating gang: {e}", exc_info=True)
+            return False
+    
+    def get_gang_by_name(self, name: str) -> Optional[Tuple[str, Dict]]:
+        """Get gang by name"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('gangs').select('*').eq('name', name).execute()
+            
+            if result.data:
+                gang = result.data[0]
+                return gang['id'], gang
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting gang by name: {e}", exc_info=True)
+            return None
+    
+    def get_user_gang(self, user_id: str) -> Optional[str]:
+        """Get user's gang ID"""
+        cache_key = f"user_gang:{user_id}"
+        # Use direct dict check: None is a valid cached value (user has no gang)
+        if cache_key in self._cache and time.time() < self._cache_expiry.get(cache_key, 0):
+            return self._cache[cache_key]
+        try:
+            if not self.is_connected():
+                return None
+            result = self.supabase.table('gang_members').select('gang_id').eq('user_id', user_id).execute()
+            gang_id = result.data[0]['gang_id'] if result.data else None
+            self._cache_set(cache_key, gang_id, ttl=60)
+            return gang_id
+        except Exception as e:
+            logger.error(f"Error getting user gang: {e}", exc_info=True)
+            return None
+    
+    def get_gang_info(self, gang_id: str) -> Optional[Dict]:
+        """Get gang info with members"""
+        cache_key = f"gang:{gang_id}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            if not self.is_connected():
+                return None
+            
+            # Get gang info
+            gang_result = self.supabase.table('gangs').select('*').eq('id', gang_id).execute()
+            
+            if not gang_result.data:
+                return None
+            
+            gang = gang_result.data[0]
+            
+            # Get members
+            members_result = self.supabase.table('gang_members').select('*').eq('gang_id', gang_id).execute()
+            
+            # Format members
+            members = {}
+            for member in members_result.data or []:
+                members[member['user_id']] = {
+                    'rank': member['rank'],
+                    'joined_at': member['joined_at']
+                }
+            
+            gang['members'] = members
+            self._cache_set(cache_key, gang, ttl=30)
+            return gang
+            
+        except Exception as e:
+            logger.error(f"Error getting gang info: {e}", exc_info=True)
+            return None
+    
+    def create_gang_invitation(self, target_id: str, gang_id: str, inviter_id: str) -> bool:
+        """Store a gang invitation (expires after 24h)"""
+        try:
+            if not self.is_connected():
+                return False
+            from datetime import datetime, timedelta
+            expires_at = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+            self.supabase.table('gang_invitations').upsert({
+                'user_id': target_id,
+                'gang_id': gang_id,
+                'inviter_id': inviter_id,
+                'expires_at': expires_at
+            }).execute()
             return True
-        return False
-
-    def get_inventory(self, user_id: str):
-        """Get user's inventory"""
-        return self.data.get('inventories', {}).get(str(user_id), [])
-
-    def add_special_item(self, user_id: str, item_id: str) -> None:
-        """Add a special item (NFT, gift card, etc.) to user's inventory"""
-        user_id = str(user_id)
-        logger.info(f"Adding special item {item_id} to user {user_id}")
-
-        if 'special_items' not in self.data:
-            self.data['special_items'] = {}
-
-        if user_id not in self.data['special_items']:
-            self.data['special_items'][user_id] = []
-
-        self.data['special_items'][user_id].append({
-            'item_id': item_id,
-            'acquired_at': datetime.now().timestamp()
-        })
-
-        # Update remaining quantity in SHOP_ITEMS_NEW
-        if item_id in SHOP_ITEMS_NEW:
-            SHOP_ITEMS_NEW[item_id]['quantity'] -= 1
-
-        self.save_data()
-        logger.info(f"Successfully added special item {item_id} to user {user_id}")
-
-    def get_special_items(self, user_id: str) -> list:
-        """Get user's special items"""
-        return self.data.get('special_items', {}).get(str(user_id), [])
-
-    def check_item_availability(self, item_id: str) -> bool:
-        """Check if a special item is still available for purchase"""
-        if item_id not in SHOP_ITEMS_NEW:
-            return False
-        return SHOP_ITEMS_NEW[item_id]['quantity'] > 0
-
-
-    def get_active_heist(self):
-        """Get active heist if any"""
-        return self.data.get('active_heist')
-
-    def create_heist(self, leader_id: str):
-        """Create a new heist"""
-        self.data['active_heist'] = {
-            'leader': str(leader_id),
-            'participants': [str(leader_id)],
-            'start_time': datetime.now().timestamp()
-        }
-        self.save_data()
-
-    def add_heist_participant(self, user_id: str):
-        """Add participant to active heist"""
-        if 'active_heist' in self.data:
-            self.data['active_heist']['participants'].append(str(user_id))
-            self.save_data()
-
-    def clear_active_heist(self):
-        """Clear active heist"""
-        if 'active_heist' in self.data:
-            del self.data['active_heist']
-            self.save_data()
-
-    def set_drug_deal_cooldown(self, user_id: str):
-        """Set drug deal cooldown"""
-        if 'drug_deal_cooldowns' not in self.data:
-            self.data['drug_deal_cooldowns'] = {}
-        self.data['drug_deal_cooldowns'][str(user_id)] = datetime.now().timestamp()
-        self.save_data()
-
-    def get_drug_deal_cooldown(self, user_id: str):
-        """Get drug deal cooldown"""
-        return self.data.get('drug_deal_cooldowns', {}).get(str(user_id), 0)
-
-    def set_chase_cooldown(self, user_id: str):
-        """Set police chase cooldown"""
-        if 'chase_cooldowns' not in self.data:
-            self.data['chase_cooldowns'] = {}
-        self.data['chase_cooldowns'][str(user_id)] = datetime.now().timestamp()
-        self.save_data()
-
-    def get_chase_cooldown(self, user_id: str):
-        """Get police chase cooldown"""
-        return self.data.get('chase_cooldowns', {}).get(str(user_id), 0)
-
-    def set_prison_role(self, user_id: str, role: str):
-        """Set prison role for user"""
-        if 'prison_roles' not in self.data:
-            self.data['prison_roles'] = {}
-        self.data['prison_roles'][str(user_id)] = role
-        self.save_data()
-
-    def get_prison_role(self, user_id: str):
-        """Get user's prison role"""
-        return self.data.get('prison_roles', {}).get(str(user_id))
-
-    def set_last_prison_activity(self, user_id: str, timestamp: float):
-        """Set timestamp of last prison activity"""
-        if 'prison_activities' not in self.data:
-            self.data['prison_activities'] = {}
-        self.data['prison_activities'][str(user_id)] = timestamp
-        self.save_data()
-
-    def get_last_prison_activity(self, user_id: str):
-        """Get timestamp of last prison activity"""
-        return self.data.get('prison_activities', {}).get(str(user_id), 0)
-
-    def create_trial(self, user_id: str, plea: str, end_time: float):
-        """Create a new trial"""
-        if 'trials' not in self.data:
-            self.data['trials'] = {}
-        self.data['trials'][str(user_id)] = {
-            'plea': plea,
-            'end_time': end_time,
-            'votes': {}
-        }
-        self.save_data()
-
-    def get_active_trial(self, user_id: str):
-        """Get active trial for user"""
-        return self.data.get('trials', {}).get(str(user_id))
-
-    def add_trial_vote(self, defendant_id: str, voter_id: str, vote: bool):
-        """Add a vote to a trial"""
-        if 'trials' in self.data and str(defendant_id) in self.data['trials']:
-            self.data['trials'][str(defendant_id)]['votes'][str(voter_id)] = vote
-            self.save_data()
-
-    def get_trial_votes(self, user_id: str):
-        """Get votes for a trial"""
-        trial = self.get_active_trial(user_id)
-        return trial['votes'] if trial else {}
-
-    def clear_active_trial(self, user_id: str):
-        """Clear active trial"""
-        if 'trials' in self.data:
-            self.data['trials'].pop(str(user_id), None)
-            self.save_data()
-
-    def set_trial_cooldown(self, user_id: str, timestamp: float):
-        """Set trial cooldown"""
-        if 'trial_cooldowns' not in self.data:
-            self.data['trial_cooldowns'] = {}
-        self.data['trial_cooldowns'][str(user_id)] = timestamp
-        self.save_data()
-
-    def get_trial_cooldown(self, user_id: str):
-        """Get trial cooldown"""
-        return self.data.get('trial_cooldowns', {}).get(str(user_id), 0)
-
-    def get_escape_cooldown(self, user_id: str):
-        """Get last escape attempt timestamp"""
-        return self.data.get('escape_cooldowns', {}).get(str(user_id), 0)
-
-    def set_escape_cooldown(self, user_id: str, timestamp: float):
-        """Set escape attempt cooldown"""
-        if 'escape_cooldowns' not in self.data:
-            self.data['escape_cooldowns'] = {}
-        self.data['escape_cooldowns'][str(user_id)] = timestamp
-        self.save_data()
-
-    def create_combat(self, combat_data: dict):
-        """Create a new combat"""
-        if 'combats' not in self.data:
-            self.data['combats'] = {}
-        combat_id = str(uuid.uuid4())
-        self.data['combats'][combat_id] = combat_data
-        self.save_data()
-        return combat_id
-
-    def get_combat(self, combat_id: str):
-        """Get combat data"""
-        return self.data.get('combats', {}).get(combat_id)
-
-    def update_combat(self, combat_id: str, combat_data: dict):
-        """Update combat data"""
-        if 'combats' in self.data and combat_id in self.data['combats']:
-            self.data['combats'][combat_id] = combat_data
-            self.save_data()
-
-    def end_combat(self, combat_id: str):
-        """End and remove combat"""
-        if 'combats' in self.data:
-            self.data['combats'].pop(combat_id, None)
-            self.save_data()
-
-    def get_daily_usage(self, user_id: str, command: str) -> int:
-        """Get number of times a command was used today"""
-        user_id = str(user_id)
-        today = datetime.now().strftime('%Y-%m-%d')
-
-        if user_id not in self.data['daily_commands']:
-            self.data['daily_commands'][user_id] = {}
-
-        if today not in self.data['daily_commands'][user_id]:
-            self.data['daily_commands'][user_id][today] = {}
-
-        return self.data['daily_commands'][user_id][today].get(command, 0)
-
-    def increment_daily_usage(self, user_id: str, command: str) -> None:
-        """Increment command usage counter"""
-        user_id = str(user_id)
-        today = datetime.now().strftime('%Y-%m-%d')
-
-        if user_id not in self.data['daily_commands']:
-            self.data['daily_commands'][user_id] = {}
-
-        if today not in self.data['daily_commands'][user_id]:
-            self.data['daily_commands'][user_id][today] = {}
-
-        current = self.data['daily_commands'][user_id][today].get(command, 0)
-        self.data['daily_commands'][user_id][today][command] = current + 1
-        self.save_data()
-
-    LOTTERY_MAX_TICKETS = 5 #Example value, adjust as needed
-    LOTTERY_TICKET_PRICE = 100 #Example value, adjust as needed
-    LOTTERY_JACKPOT_BASE = 1000 #Example value, adjust as needed
-
-    def buy_lottery_ticket(self, user_id: str, numbers: list) -> bool:
-        """Buy a lottery ticket"""
-        user_id = str(user_id)
-        if user_id not in self.data['lottery_tickets']:
-            self.data['lottery_tickets'][user_id] = []
-
-        # Check if user hasn't exceeded max tickets
-        if len(self.data['lottery_tickets'][user_id]) >= self.LOTTERY_MAX_TICKETS:
+        except Exception as e:
+            logger.error(f"Error creating gang invitation: {e}", exc_info=True)
             return False
 
-        self.data['lottery_tickets'][user_id].append(numbers)
-        self.data['lottery_jackpot'] += self.LOTTERY_TICKET_PRICE // 2  # Half of ticket price goes to jackpot
-        self.save_data()
-        return True
+    def get_gang_invitation(self, user_id: str) -> Optional[Dict]:
+        """Get pending gang invitation for user (non-expired)"""
+        try:
+            if not self.is_connected():
+                return None
+            from datetime import datetime
+            now = datetime.utcnow().isoformat()
+            result = self.supabase.table('gang_invitations').select('*').eq('user_id', user_id).gt('expires_at', now).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Error getting gang invitation: {e}", exc_info=True)
+            return None
 
-    def get_lottery_tickets(self, user_id: str) -> list:
-        """Get user's lottery tickets"""
-        return self.data['lottery_tickets'].get(str(user_id), [])
+    def delete_gang_invitation(self, user_id: str):
+        """Delete a gang invitation"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('gang_invitations').delete().eq('user_id', user_id).execute()
+        except Exception as e:
+            logger.error(f"Error deleting gang invitation: {e}", exc_info=True)
 
-    def clear_lottery_tickets(self) -> None:
-        """Clear all lottery tickets after draw"""
-        self.data['lottery_tickets'] = {}
-        self.data['lottery_jackpot'] = self.LOTTERY_JACKPOT_BASE
-        self.save_data()
+    def add_gang_member(self, gang_id: str, user_id: str, rank: str = 'recrue') -> bool:
+        """Add a member to a gang"""
+        try:
+            if not self.is_connected():
+                return False
+            self._cache_invalidate(f"gang:{gang_id}", f"user_gang:{user_id}")
+            self.supabase.table('gang_members').insert({
+                'gang_id': gang_id,
+                'user_id': user_id,
+                'rank': rank
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding gang member: {e}", exc_info=True)
+            return False
 
-    def place_race_bet(self, user_id: str, horse: str, amount: int) -> None:
-        """Place a bet on a horse"""
-        user_id = str(user_id)
-        if 'race_bets' not in self.data:
-            self.data['race_bets'] = {}
+    def remove_gang_member(self, gang_id: str, user_id: str):
+        """Remove a member from a gang"""
+        try:
+            if not self.is_connected():
+                return
+            self._cache_invalidate(f"gang:{gang_id}", f"user_gang:{user_id}")
+            self.supabase.table('gang_members').delete().eq('gang_id', gang_id).eq('user_id', user_id).execute()
+        except Exception as e:
+            logger.error(f"Error removing gang member: {e}", exc_info=True)
 
-        self.data['race_bets'][user_id] = {
-            'horse': horse,
-            'amount': amount,
-            'time': datetime.now().timestamp()
-        }
-        self.save_data()
+    def update_gang_member_rank(self, gang_id: str, user_id: str, rank: str):
+        """Update a member's rank"""
+        try:
+            if not self.is_connected():
+                return
+            self._cache_invalidate(f"gang:{gang_id}")
+            self.supabase.table('gang_members').update({'rank': rank}).eq('gang_id', gang_id).eq('user_id', user_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating gang member rank: {e}", exc_info=True)
 
-    def get_race_bet(self, user_id: str) -> dict:
-        """Get user's race bet"""
-        return self.data.get('race_bets', {}).get(str(user_id))
+    def transfer_gang_leadership(self, gang_id: str, old_boss_id: str, new_boss_id: str) -> bool:
+        """Transfer gang boss to another member"""
+        try:
+            if not self.is_connected():
+                return False
+            self._cache_invalidate(f"gang:{gang_id}")
+            self.supabase.table('gangs').update({'boss_id': new_boss_id}).eq('id', gang_id).execute()
+            self.update_gang_member_rank(gang_id, old_boss_id, 'lieutenant')
+            self.update_gang_member_rank(gang_id, new_boss_id, 'boss')
+            return True
+        except Exception as e:
+            logger.error(f"Error transferring gang leadership: {e}", exc_info=True)
+            return False
 
-    def clear_race_bets(self) -> None:
-        """Clear all race bets"""
-        self.data['race_bets'] = {}
-        self.save_data()
+    def disband_gang(self, gang_id: str) -> bool:
+        """Disband a gang: delete members, free territories, delete gang row"""
+        try:
+            if not self.is_connected():
+                return False
+            self._cache_invalidate(f"gang:{gang_id}", "territories")
+            self.supabase.table('gang_members').delete().eq('gang_id', gang_id).execute()
+            self.supabase.table('territories').update({'controlled_by': None, 'defense_points': 0}).eq('controlled_by', gang_id).execute()
+            self.supabase.table('gangs').delete().eq('id', gang_id).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error disbanding gang: {e}", exc_info=True)
+            return False
 
-    def set_roulette_cooldown(self, user_id: str) -> None:
-        """Set roulette cooldown"""
-        self.data['roulette_cooldowns'][str(user_id)] = datetime.now().timestamp()
-        self.save_data()
+    def update_gang_vault(self, gang_id: str, new_amount: int):
+        """Update gang vault_points"""
+        try:
+            if not self.is_connected():
+                return
+            self._cache_invalidate(f"gang:{gang_id}")
+            self.supabase.table('gangs').update({'vault_points': new_amount}).eq('id', gang_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating gang vault: {e}", exc_info=True)
 
-    def get_roulette_cooldown(self, user_id: str) -> float:
-        """Get roulette cooldown"""
-        return self.data['roulette_cooldowns'].get(str(user_id), 0)
+    def record_daily_contribution(self, user_id: str, amount: int):
+        """Record (upsert) today's contribution for vault limit tracking"""
+        try:
+            if not self.is_connected():
+                return
+            from datetime import date
+            today = date.today().isoformat()
+            result = self.supabase.table('gang_daily_contributions').select('amount').eq('user_id', user_id).eq('contribution_date', today).execute()
+            if result.data:
+                current = result.data[0]['amount']
+                self.supabase.table('gang_daily_contributions').update({'amount': current + amount}).eq('user_id', user_id).eq('contribution_date', today).execute()
+            else:
+                self.supabase.table('gang_daily_contributions').insert({
+                    'user_id': user_id,
+                    'contribution_date': today,
+                    'amount': amount
+                }).execute()
+        except Exception as e:
+            logger.error(f"Error recording daily contribution: {e}", exc_info=True)
 
-    def get_losing_streak(self, user_id: str, game_type: str) -> int:
-        """Get current losing streak for a specific game"""
-        if 'losing_streaks' not in self.data:
-            self.data['losing_streaks'] = {}
-
-        if user_id not in self.data['losing_streaks']:
-            self.data['losing_streaks'][user_id] = {}
-
-        return self.data['losing_streaks'][user_id].get(game_type, 0)
-
-    def update_losing_streak(self, user_id: str, game_type: str, won: bool) -> None:
-        """Update losing streak counter"""
-        if 'losing_streaks' not in self.data:
-            self.data['losing_streaks'] = {}
-
-        if user_id not in self.data['losing_streaks']:
-            self.data['losing_streaks'][user_id] = {}
-
-        if won:
-            self.data['losing_streaks'][user_id][game_type] = 0
-        else:
-            current = self.data['losing_streaks'][user_id].get(game_type, 0)
-            self.data['losing_streaks'][user_id][game_type] = current + 1
-        self.save_data()
-
-    DICE_LOSING_STREAK_PENALTY = 0.2 #Example value, adjust as needed
-    BLACKJACK_STREAK_PENALTY = True #Example value, adjust as needed
-
-    def calculate_penalty_multiplier(self, user_id: str, game_type: str) -> float:
-        """Calculate penalty multiplier based on losing streak"""
-        streak = self.get_losing_streak(user_id, game_type)
-        if game_type == 'dice' and streak >= 3:
-            return 1 + self.DICE_LOSING_STREAK_PENALTY
-        elif game_type == 'blackjack' and self.BLACKJACK_STREAK_PENALTY:
-            return 1 + (0.1 * min(streak, 5))  # Max 50% additional loss after 5 losses
-        return 1.0
-
-    def end_voice_session(self, user_id):
-        """End voice session and award points"""
-        user_id = str(user_id)
-        if user_id not in self.data['voice_sessions']:
+    def get_daily_contributions(self, user_id: str) -> int:
+        """Get today's total contributions by user"""
+        try:
+            if not self.is_connected():
+                return 0
+            from datetime import date
+            today = date.today().isoformat()
+            result = self.supabase.table('gang_daily_contributions').select('amount').eq('user_id', user_id).eq('contribution_date', today).execute()
+            return result.data[0]['amount'] if result.data else 0
+        except Exception as e:
+            logger.error(f"Error getting daily contributions: {e}", exc_info=True)
             return 0
 
-        session = self.data['voice_sessions'][user_id]
-        duration = datetime.now().timestamp() - session['start_time']
-        points_earned = 0
+    def get_all_gangs(self) -> Dict[str, Dict]:
+        """Get all gangs as dict keyed by id"""
+        try:
+            if not self.is_connected():
+                return {}
+            result = self.supabase.table('gangs').select('*').execute()
+            return {g['id']: g for g in (result.data or [])}
+        except Exception as e:
+            logger.error(f"Error getting all gangs: {e}", exc_info=True)
+            return {}
 
-        # Points de base pour le vocal (1 point par minute)
-        base_points = int(duration / 60)
+    def update_gang_stats(self, gang_id: str, **kwargs):
+        """Generic update of gang fields (reputation, territory_count, etc.)"""
+        try:
+            if not self.is_connected() or not kwargs:
+                return
+            self._cache_invalidate(f"gang:{gang_id}")
+            self.supabase.table('gangs').update(kwargs).eq('id', gang_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating gang stats: {e}", exc_info=True)
 
-        # Bonus si c'était pendant un événement
-        if session.get('event_name'):
-            base_points *= 2  # Double points pendant les événements
-            logger.info(f"Event bonus applied for {user_id} in {session['event_name']}")
+    # === GANG WARS ===
 
-        points_earned = base_points
-        self.add_points(user_id, points_earned)
+    def create_war(self, war_data: Dict) -> bool:
+        """Create a new war record"""
+        try:
+            if not self.is_connected():
+                return False
+            self.supabase.table('gang_wars').insert(war_data).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error creating war: {e}", exc_info=True)
+            return False
 
-        del self.data['voice_sessions'][user_id]
-        self.save_data()
+    def get_war(self, war_id: str) -> Optional[Dict]:
+        """Get a war by id"""
+        try:
+            if not self.is_connected():
+                return None
+            result = self.supabase.table('gang_wars').select('*').eq('war_id', war_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Error getting war: {e}", exc_info=True)
+            return None
 
-        logger.info(f"Ended voice session for {user_id}. Duration: {duration:.0f}s, Points earned: {points_earned}")
-        return duration, points_earned
+    def update_war(self, war_id: str, **kwargs) -> bool:
+        """Update war fields"""
+        try:
+            if not self.is_connected() or not kwargs:
+                return False
+            self.supabase.table('gang_wars').update(kwargs).eq('war_id', war_id).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating war: {e}", exc_info=True)
+            return False
+
+    def get_active_wars(self) -> List[Dict]:
+        """Get all wars that are DECLARED, PREPARATION or ACTIVE"""
+        try:
+            if not self.is_connected():
+                return []
+            result = self.supabase.table('gang_wars').select('*').in_('status', ['declared', 'preparation', 'active']).execute()
+            return result.data or []
+        except Exception as e:
+            logger.error(f"Error getting active wars: {e}", exc_info=True)
+            return []
+
+    def get_gang_war_history(self, gang_id: str) -> List[Dict]:
+        """Get war history involving a gang (attacker or defender)"""
+        try:
+            if not self.is_connected():
+                return []
+            attacker = self.supabase.table('gang_wars').select('*').eq('attacker_gang_id', gang_id).execute()
+            defender = self.supabase.table('gang_wars').select('*').eq('defender_gang_id', gang_id).execute()
+            all_wars = (attacker.data or []) + (defender.data or [])
+            return sorted(all_wars, key=lambda x: x.get('declared_at', ''), reverse=True)
+        except Exception as e:
+            logger.error(f"Error getting gang war history: {e}", exc_info=True)
+            return []
+
+    def gang_in_active_war(self, gang_id: str) -> bool:
+        """Return True if gang is involved in an ongoing war"""
+        try:
+            if not self.is_connected():
+                return False
+            active = self.get_active_wars()
+            for war in active:
+                if gang_id in (war.get('attacker_gang_id'), war.get('defender_gang_id')):
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Error checking gang in active war: {e}", exc_info=True)
+            return False
+
+    # === TERRITORIES ===
+    
+    def get_all_territories(self) -> Dict:
+        """Get all territories"""
+        cache_key = "territories"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            if not self.is_connected():
+                return {}
+            
+            result = self.supabase.table('territories').select('*').execute()
+            
+            territories = {}
+            for territory in result.data or []:
+                territories[territory['id']] = territory
+            
+            self._cache_set(cache_key, territories, ttl=60)
+            return territories
+            
+        except Exception as e:
+            logger.error(f"Error getting territories: {e}", exc_info=True)
+            return {}
+    
+    def capture_territory(self, territory_id: str, new_gang_id: Optional[str], defense_points: int = 100):
+        """Set a territory's controlling gang and reset defense"""
+        try:
+            if not self.is_connected():
+                return
+            self._cache_invalidate("territories")
+            self.supabase.table('territories').update({
+                'controlled_by': new_gang_id,
+                'defense_points': defense_points
+            }).eq('id', territory_id).execute()
+        except Exception as e:
+            logger.error(f"Error capturing territory: {e}", exc_info=True)
+
+    def update_territory_defense(self, territory_id: str, defense_points: int):
+        """Update defense_points for a territory"""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('territories').update({'defense_points': defense_points}).eq('id', territory_id).execute()
+        except Exception as e:
+            logger.error(f"Error updating territory defense: {e}", exc_info=True)
+
+    def get_territory(self, territory_id: str) -> Optional[Dict]:
+        """Get a single territory by id"""
+        try:
+            if not self.is_connected():
+                return None
+            result = self.supabase.table('territories').select('*').eq('id', territory_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Error getting territory: {e}", exc_info=True)
+            return None
+
+    # === DAILY COMMANDS ===
+
+    def get_daily_commands(self, user_id: str, command_date: str = None) -> Dict:
+        """Get daily commands for user"""
+        try:
+            if not self.is_connected():
+                return {}
+            
+            if not command_date:
+                command_date = date.today().isoformat()
+            
+            result = self.supabase.table('daily_commands').select('commands').eq('user_id', user_id).eq('command_date', command_date).execute()
+            
+            if result.data:
+                return result.data[0]['commands'] or {}
+            
+            return {}
+            
+        except Exception as e:
+            logger.error(f"Error getting daily commands: {e}", exc_info=True)
+            return {}
+    
+    def increment_daily_command(self, user_id: str, command_name: str, command_date: str = None):
+        """Increment daily command count"""
+        try:
+            if not self.is_connected():
+                return
+            
+            if not command_date:
+                command_date = date.today().isoformat()
+            
+            # Get current commands
+            current_commands = self.get_daily_commands(user_id, command_date)
+            current_commands[command_name] = current_commands.get(command_name, 0) + 1
+            
+            # Update
+            self.supabase.table('daily_commands').upsert({
+                'user_id': user_id,
+                'command_date': command_date,
+                'commands': current_commands
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error incrementing daily command: {e}", exc_info=True)
+    
+    # === INVENTORIES ===
+    
+    def get_inventory(self, user_id: str) -> List[str]:
+        """Get user inventory"""
+        try:
+            if not self.is_connected():
+                return []
+            
+            result = self.supabase.table('inventories').select('items').eq('user_id', user_id).execute()
+            
+            if result.data:
+                return result.data[0]['items'] or []
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error getting inventory: {e}", exc_info=True)
+            return []
+    
+    def add_item(self, user_id: str, item: str):
+        """Add item to inventory"""
+        try:
+            if not self.is_connected():
+                return
+            
+            current_items = self.get_inventory(user_id)
+            current_items.append(item)
+            
+            self.supabase.table('inventories').upsert({
+                'user_id': user_id,
+                'items': current_items
+            }).execute()
+            
+        except Exception as e:
+            logger.error(f"Error adding item: {e}", exc_info=True)
+    
+    def remove_item(self, user_id: str, item: str) -> bool:
+        """Remove item from inventory"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            current_items = self.get_inventory(user_id)
+            
+            if item in current_items:
+                current_items.remove(item)
+                
+                self.supabase.table('inventories').update({
+                    'items': current_items
+                }).eq('user_id', user_id).execute()
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error removing item: {e}", exc_info=True)
+            return False
+    
+    # === MIGRATION ===
+    
+    def migrate_from_json(self, json_file_path: str):
+        """Migrate data from JSON file to Supabase"""
+        try:
+            if not self.is_connected():
+                logger.error("Cannot migrate: Supabase not connected")
+                return
+            
+            with open(json_file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            logger.info("Starting migration from JSON to Supabase...")
+            
+            # Migrate users
+            if 'users' in data and data['users']:
+                users_to_insert = []
+                for user_id, user_data in data['users'].items():
+                    users_to_insert.append({
+                        'user_id': user_id,
+                        'points': user_data.get('points', 0)
+                    })
+                
+                if users_to_insert:
+                    self.supabase.table('users').upsert(users_to_insert).execute()
+                    logger.info(f"Migrated {len(users_to_insert)} users")
+            
+            # Migrate cooldowns
+            cooldown_tables = ['rob_cooldowns', 'last_work', 'drug_deal_cooldowns', 'roulette_cooldowns']
+            for table_name in cooldown_tables:
+                if table_name in data and data[table_name]:
+                    cooldowns_to_insert = []
+                    for user_id, cooldown_time in data[table_name].items():
+                        cooldowns_to_insert.append({
+                            'user_id': user_id,
+                            'cooldown_type': table_name,
+                            'cooldown_until': cooldown_time
+                        })
+                    
+                    if cooldowns_to_insert:
+                        self.supabase.table('user_cooldowns').upsert(cooldowns_to_insert).execute()
+                        logger.info(f"Migrated {len(cooldowns_to_insert)} {table_name}")
+            
+            # Migrate Twitter links
+            if 'twitter_links' in data and data['twitter_links']:
+                twitter_links = []
+                for user_id, handle in data['twitter_links'].items():
+                    twitter_links.append({
+                        'user_id': user_id,
+                        'twitter_handle': handle
+                    })
+                
+                if twitter_links:
+                    self.supabase.table('twitter_links').upsert(twitter_links).execute()
+                    logger.info(f"Migrated {len(twitter_links)} Twitter links")
+            
+            # Migrate prison times
+            if 'prison_times' in data and data['prison_times']:
+                prison_times = []
+                for user_id, release_time in data['prison_times'].items():
+                    prison_times.append({
+                        'user_id': user_id,
+                        'release_time': release_time
+                    })
+                
+                if prison_times:
+                    self.supabase.table('prison_times').upsert(prison_times).execute()
+                    logger.info(f"Migrated {len(prison_times)} prison times")
+            
+            # Migrate inventories
+            if 'inventories' in data and data['inventories']:
+                inventories = []
+                for user_id, items in data['inventories'].items():
+                    inventories.append({
+                        'user_id': user_id,
+                        'items': items
+                    })
+                
+                if inventories:
+                    self.supabase.table('inventories').upsert(inventories).execute()
+                    logger.info(f"Migrated {len(inventories)} inventories")
+            
+            # Migrate daily commands
+            if 'daily_commands' in data and data['daily_commands']:
+                daily_commands = []
+                for user_id, dates_data in data['daily_commands'].items():
+                    for date_str, commands in dates_data.items():
+                        daily_commands.append({
+                            'user_id': user_id,
+                            'command_date': date_str,
+                            'commands': commands
+                        })
+                
+                if daily_commands:
+                    self.supabase.table('daily_commands').upsert(daily_commands).execute()
+                    logger.info(f"Migrated {len(daily_commands)} daily command records")
+            
+            logger.info("Migration completed successfully!")
+            
+        except Exception as e:
+            logger.error(f"Error during migration: {e}", exc_info=True)
+    
+    # === UTILITY ===
+    
+    def cleanup_expired_data(self):
+        """Cleanup expired data (safe version without missing RPC)"""
+        try:
+            if not self.is_connected():
+                return
+
+            # Les cooldowns expirés sont déjà nettoyés automatiquement
+            # par PointSystem.is_on_cooldown() -> remove_cooldown()
+            logger.info("Cleanup skipped: cooldown cleanup is handled lazily by the bot.")
+
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}", exc_info=True)
+
+    # === JUSTICE SYSTEM METHODS ===
+    
+    def arrest_user(self, arrester_id: str, target_id: str, reason: str, prison_time: int) -> bool:
+        """Arrest a user and put them in prison"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Create arrest record
+            arrest_data = {
+                'arrester_id': arrester_id,
+                'target_id': target_id,
+                'reason': reason,
+                'prison_time': prison_time,
+                'arrested_at': datetime.now().isoformat(),
+                'status': 'active'
+            }
+            
+            self.supabase.table('arrests').insert(arrest_data).execute()
+            
+            # Update user prison status
+            prison_data = {
+                'user_id': target_id,
+                'imprisoned_at': datetime.now().isoformat(),
+                'release_at': (datetime.now() + timedelta(seconds=prison_time)).isoformat(),
+                'reason': reason,
+                'arrester_id': arrester_id,
+                'status': 'imprisoned'
+            }
+            
+            # Upsert prison record
+            self.supabase.table('prison_records').upsert(prison_data).execute()
+            
+            logger.info(f"User {target_id} arrested by {arrester_id} for {prison_time}s")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error arresting user: {e}", exc_info=True)
+            return False
+    
+    def get_prison_status(self, user_id: str) -> Optional[Dict]:
+        """Get user's current prison status"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('prison_records').select('*').eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            if result.data:
+                prison_data = result.data[0]
+                release_time = datetime.fromisoformat(prison_data['release_at'])
+                now = datetime.now()
+                
+                if now >= release_time:
+                    # User should be released
+                    self.release_from_prison(user_id)
+                    return None
+                
+                time_left = (release_time - now).total_seconds()
+                return {
+                    'time_left': int(time_left),
+                    'reason': prison_data['reason'],
+                    'arrester_id': prison_data['arrester_id']
+                }
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting prison status: {e}", exc_info=True)
+            return None
+    
+    def release_from_prison(self, user_id: str) -> bool:
+        """Release user from prison"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            self.supabase.table('prison_records').update({'status': 'released'}).eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            logger.info(f"Released user {user_id} from prison")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error releasing from prison: {e}", exc_info=True)
+            return False
+    
+    def pay_bail(self, user_id: str, bail_amount: int) -> bool:
+        """Pay bail to get out of prison"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Check if user has enough points
+            user_data = self.get_user_data(user_id)
+            if user_data['points'] < bail_amount:
+                return False
+            
+            # Remove points
+            self.remove_points(user_id, bail_amount)
+            
+            # Release from prison
+            self.release_from_prison(user_id)
+            
+            # Record bail payment
+            bail_data = {
+                'user_id': user_id,
+                'amount': bail_amount,
+                'paid_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('bail_payments').insert(bail_data).execute()
+            
+            logger.info(f"User {user_id} paid bail of {bail_amount}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error paying bail: {e}", exc_info=True)
+            return False
+    
+    def add_prison_visit(self, visitor_id: str, prisoner_id: str, message: str) -> bool:
+        """Record a prison visit"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            visit_data = {
+                'visitor_id': visitor_id,
+                'prisoner_id': prisoner_id,
+                'message': message,
+                'visited_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('prison_visits').insert(visit_data).execute()
+            
+            logger.info(f"Prison visit recorded: {visitor_id} visited {prisoner_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error recording prison visit: {e}", exc_info=True)
+            return False
+    
+    def submit_plea(self, user_id: str, plea_text: str) -> bool:
+        """Submit a plea for trial"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            plea_data = {
+                'user_id': user_id,
+                'plea_text': plea_text,
+                'submitted_at': datetime.now().isoformat(),
+                'status': 'pending'
+            }
+            
+            self.supabase.table('pleas').insert(plea_data).execute()
+            
+            logger.info(f"Plea submitted by user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error submitting plea: {e}", exc_info=True)
+            return False
+    
+    def do_prison_work(self, user_id: str) -> Tuple[bool, int]:
+        """Do work in prison to earn points and reduce sentence"""
+        try:
+            if not self.is_connected():
+                return False, 0
+            
+            # Check if user is in prison
+            prison_status = self.get_prison_status(user_id)
+            if not prison_status:
+                return False, 0
+            
+            # Award points for prison work
+            from config import JUSTICE_CONFIG
+            reward_points = JUSTICE_CONFIG['prison_work_reward']
+            self.add_points(user_id, reward_points)
+            
+            # Reduce sentence by 30 minutes
+            time_reduction = 30 * 60  # 30 minutes
+            
+            # Update release time
+            result = self.supabase.table('prison_records').select('release_at').eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            if result.data:
+                current_release = datetime.fromisoformat(result.data[0]['release_at'])
+                new_release = current_release - timedelta(seconds=time_reduction)
+                
+                # Don't reduce below current time
+                if new_release < datetime.now():
+                    new_release = datetime.now()
+                
+                self.supabase.table('prison_records').update({'release_at': new_release.isoformat()}).eq('user_id', user_id).eq('status', 'imprisoned').execute()
+            
+            # Record work session
+            work_data = {
+                'user_id': user_id,
+                'points_earned': reward_points,
+                'time_reduced': time_reduction,
+                'worked_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('prison_work').insert(work_data).execute()
+            
+            logger.info(f"Prison work completed by {user_id}: +{reward_points} points, -{time_reduction}s")
+            return True, reward_points
+            
+        except Exception as e:
+            logger.error(f"Error doing prison work: {e}", exc_info=True)
+            return False, 0
+
+    # === ADMIN SYSTEM METHODS ===
+    
+    def admin_add_item(self, admin_id: str, target_id: str, item_id: str, quantity: int = 1, reason: str = "") -> bool:
+        """Add item to user's inventory (admin action)"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Add items to inventory
+            for _ in range(quantity):
+                self.add_item_to_inventory(target_id, item_id)
+            
+            # Log admin action
+            log_data = {
+                'admin_id': admin_id,
+                'target_id': target_id,
+                'action': 'add_item',
+                'details': {'item_id': item_id, 'quantity': quantity},
+                'reason': reason,
+                'performed_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('admin_actions').insert(log_data).execute()
+            
+            logger.info(f"Admin {admin_id} added {quantity}x {item_id} to user {target_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in admin add item: {e}", exc_info=True)
+            return False
+    
+    def admin_remove_item(self, admin_id: str, target_id: str, item_id: str, quantity: int = 1, reason: str = "") -> Tuple[bool, int]:
+        """Remove item from user's inventory (admin action)"""
+        try:
+            if not self.is_connected():
+                return False, 0
+            
+            # Get current inventory
+            inventory = self.get_inventory(target_id)
+            items_to_remove = min(quantity, inventory.count(item_id))
+            
+            # Remove items
+            for _ in range(items_to_remove):
+                self.remove_item_from_inventory(target_id, item_id)
+            
+            # Log admin action
+            log_data = {
+                'admin_id': admin_id,
+                'target_id': target_id,
+                'action': 'remove_item',
+                'details': {'item_id': item_id, 'quantity': items_to_remove},
+                'reason': reason,
+                'performed_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('admin_actions').insert(log_data).execute()
+            
+            logger.info(f"Admin {admin_id} removed {items_to_remove}x {item_id} from user {target_id}")
+            return True, items_to_remove
+            
+        except Exception as e:
+            logger.error(f"Error in admin remove item: {e}", exc_info=True)
+            return False, 0
+    
+    def admin_set_user_role(self, admin_id: str, target_id: str, new_role: str, reason: str = "") -> bool:
+        """Set user role (admin action)"""
+        try:
+            if not self.is_connected():
+                return False
+            
+            # Update user role
+            role_data = {
+                'user_id': target_id,
+                'role': new_role,
+                'assigned_by': admin_id,
+                'assigned_at': datetime.now().isoformat(),
+                'reason': reason
+            }
+            
+            # Upsert user role
+            self.supabase.table('user_roles').upsert(role_data).execute()
+            
+            # Log admin action
+            log_data = {
+                'admin_id': admin_id,
+                'target_id': target_id,
+                'action': 'set_role',
+                'details': {'new_role': new_role},
+                'reason': reason,
+                'performed_at': datetime.now().isoformat()
+            }
+            
+            self.supabase.table('admin_actions').insert(log_data).execute()
+            
+            logger.info(f"Admin {admin_id} set role {new_role} for user {target_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error setting user role: {e}", exc_info=True)
+            return False
+    
+    def get_user_role(self, user_id: str) -> Optional[str]:
+        """Get user's current role"""
+        try:
+            if not self.is_connected():
+                return None
+            
+            result = self.supabase.table('user_roles').select('role').eq('user_id', user_id).execute()
+            
+            if result.data:
+                return result.data[0]['role']
+            
+            return "member"  # Default role
+            
+        except Exception as e:
+            logger.error(f"Error getting user role: {e}", exc_info=True)
+            return "member"
+    
+    def get_admin_actions(self, admin_id: str = None, target_id: str = None, limit: int = 50) -> List[Dict]:
+        """Get admin action history"""
+        try:
+            if not self.is_connected():
+                return []
+            
+            query = self.supabase.table('admin_actions').select('*').order('performed_at', desc=True).limit(limit)
+            
+            if admin_id:
+                query = query.eq('admin_id', admin_id)
+            
+            if target_id:
+                query = query.eq('target_id', target_id)
+            
+            result = query.execute()
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting admin actions: {e}", exc_info=True)
+            return []
+
+    def save_data(self):
+        """Compatibility method - not needed for Supabase"""
+        pass
+    
+    @property
+    def data(self) -> Dict:
+        """Compatibility property for legacy code"""
+        logger.warning("Using legacy data property - consider migrating to specific methods")
+        return {}
+
+    # === ADVANCED GANG WARS METHODS (Phase 4B) ===
+    
+    def create_gang_alliance(self, gang1_id: int, gang2_id: int, proposed_by: str) -> bool:
+        """Créer une proposition d'alliance entre gangs"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_alliances').insert({
+                'gang1_id': gang1_id,
+                'gang2_id': gang2_id,
+                'status': 'pending',
+                'proposed_by': proposed_by,
+                'created_at': datetime.now().isoformat()
+            }).execute()
+            
+            logger.info(f"Alliance proposed between gangs {gang1_id} and {gang2_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error creating gang alliance: {e}", exc_info=True)
+            return False
+    
+    def get_gang_alliances(self, gang_id: int) -> List[Dict[str, Any]]:
+        """Récupérer les alliances d'un gang"""
+        if not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('gang_alliances').select('*').or_(
+                f'gang1_id.eq.{gang_id},gang2_id.eq.{gang_id}'
+            ).execute()
+            
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting gang alliances: {e}", exc_info=True)
+            return []
+    
+    def accept_gang_alliance(self, alliance_id: int) -> bool:
+        """Accepter une alliance de gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_alliances').update({
+                'status': 'active',
+                'accepted_at': datetime.now().isoformat()
+            }).eq('id', alliance_id).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error accepting alliance: {e}", exc_info=True)
+            return False
+    
+    def break_gang_alliance(self, alliance_id: int, broken_by: str) -> bool:
+        """Rompre une alliance de gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_alliances').update({
+                'status': 'broken',
+                'broken_by': broken_by,
+                'broken_at': datetime.now().isoformat()
+            }).eq('id', alliance_id).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error breaking alliance: {e}", exc_info=True)
+            return False
+    
+    def claim_territory(self, gang_id: int, territory_name: str, claimed_by: str) -> bool:
+        """Revendiquer un territoire pour un gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            # Vérifier si le territoire est déjà pris
+            existing = self.supabase.table('gang_territories').select('*').eq(
+                'territory_name', territory_name
+            ).eq('status', 'claimed').execute()
+            
+            if existing.data:
+                return False  # Territoire déjà pris
+            
+            # Revendiquer le territoire
+            result = self.supabase.table('gang_territories').insert({
+                'gang_id': gang_id,
+                'territory_name': territory_name,
+                'claimed_by': claimed_by,
+                'claimed_at': datetime.now().isoformat(),
+                'status': 'claimed'
+            }).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error claiming territory: {e}", exc_info=True)
+            return False
+    
+    def get_gang_territories(self, gang_id: int) -> List[Dict[str, Any]]:
+        """Récupérer les territoires d'un gang"""
+        if not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('gang_territories').select('*').eq(
+                'gang_id', gang_id
+            ).eq('status', 'claimed').execute()
+            
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting gang territories: {e}", exc_info=True)
+            return []
+    
+    def add_gang_asset(self, gang_id: int, asset_type: str, asset_data: Dict, added_by: str) -> bool:
+        """Ajouter un asset à un gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            result = self.supabase.table('gang_assets').insert({
+                'gang_id': gang_id,
+                'asset_type': asset_type,
+                'asset_data': json.dumps(asset_data),
+                'added_by': added_by,
+                'created_at': datetime.now().isoformat(),
+                'status': 'active'
+            }).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error adding gang asset: {e}", exc_info=True)
+            return False
+    
+    def get_gang_assets(self, gang_id: int) -> List[Dict[str, Any]]:
+        """Récupérer les assets d'un gang"""
+        if not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('gang_assets').select('*').eq(
+                'gang_id', gang_id
+            ).eq('status', 'active').execute()
+            
+            return result.data or []
+            
+        except Exception as e:
+            logger.error(f"Error getting gang assets: {e}", exc_info=True)
+            return []
+    
+    def update_gang_reputation(self, gang_id: int, reputation_change: int, reason: str) -> bool:
+        """Mettre à jour la réputation d'un gang"""
+        if not self.supabase:
+            return False
+        
+        try:
+            # Récupérer la réputation actuelle
+            gang = self.supabase.table('gangs').select('reputation').eq('id', gang_id).execute()
+            if not gang.data:
+                return False
+            
+            current_rep = gang.data[0].get('reputation', 0)
+            new_rep = max(-100, min(100, current_rep + reputation_change))  # Clamp entre -100 et 100
+            
+            # Mettre à jour
+            result = self.supabase.table('gangs').update({
+                'reputation': new_rep
+            }).eq('id', gang_id).execute()
+            
+            # Logger l'historique
+            self.supabase.table('gang_reputation_history').insert({
+                'gang_id': gang_id,
+                'reputation_change': reputation_change,
+                'new_reputation': new_rep,
+                'reason': reason,
+                'timestamp': datetime.now().isoformat()
+            }).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error updating gang reputation: {e}", exc_info=True)
+            return False
+    
+    def get_gang_reputation(self, gang_id: int) -> int:
+        """Récupérer la réputation d'un gang"""
+        if not self.supabase:
+            return 0
+        
+        try:
+            result = self.supabase.table('gangs').select('reputation').eq('id', gang_id).execute()
+            
+            if result.data:
+                return result.data[0].get('reputation', 0)
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Error getting gang reputation: {e}", exc_info=True)
+            return 0
+    
+    def get_all_territories_status(self) -> Dict[str, Dict[str, Any]]:
+        """Récupérer le statut de tous les territoires"""
+        if not self.supabase:
+            return {}
+        
+        try:
+            result = self.supabase.table('gang_territories').select(
+                'territory_name, gang_id, claimed_at, gangs(name)'
+            ).eq('status', 'claimed').execute()
+            
+            territories = {}
+            for territory in result.data or []:
+                territories[territory['territory_name']] = {
+                    'gang_id': territory['gang_id'],
+                    'gang_name': territory['gangs']['name'] if territory.get('gangs') else 'Unknown',
+                    'claimed_at': territory['claimed_at']
+                }
+            
+            return territories
+            
+        except Exception as e:
+            logger.error(f"Error getting territories status: {e}", exc_info=True)
+            return {}
+
+    # === BOT STATE (key-value persistence) ===
+
+    def save_bot_state(self, key: str, data: dict):
+        """Upsert arbitrary JSON state in the bot_state table (key TEXT, value JSONB)."""
+        try:
+            if not self.is_connected():
+                return
+            self.supabase.table('bot_state').upsert({
+                'key': key,
+                'value': data,
+                'updated_at': datetime.now().isoformat()
+            }).execute()
+        except Exception as e:
+            logger.error(f"Error saving bot state '{key}': {e}", exc_info=True)
+
+    def load_bot_state(self, key: str) -> Optional[dict]:
+        """Load JSON state from the bot_state table. Returns None if key absent."""
+        try:
+            if not self.is_connected():
+                return None
+            result = self.supabase.table('bot_state').select('value').eq('key', key).execute()
+            return result.data[0]['value'] if result.data else None
+        except Exception as e:
+            logger.error(f"Error loading bot state '{key}': {e}", exc_info=True)
+            return None
